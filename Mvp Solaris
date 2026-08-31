@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head> 
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>Energia Solar – Energia do Futuro</title>
+
+<style>
+
+:root{
+--azul:#020a11;
+--amarelo:#f0ed46e2;
+--laranja:#f69617;
+--amarelo:#ffb300;
+--fundo:#ffde09f6;
+--texto:#1c1913;
+--branco:#285b95;
+}
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box
+}
+
+body{
+font-family:Arial,sans-serif;
+background:var(--fundo);
+color:var(--texto);
+line-height:1.6
+}
+
+header,footer{
+background:var(--azul);
+color:#fffafa;
+text-align:center;
+padding:30px
+}
+
+nav{
+background:var(--verde);
+padding:12px;
+text-align:center
+}
+
+nav a{
+color:#fff;
+text-decoration:none;
+margin:0 12px;
+font-weight:bold
+}
+
+.container{
+max-width:1100px;
+margin:auto;
+padding:20px
+}
+
+.card{
+background:#fff;
+padding:20px;
+margin:20px 0;
+border-radius:12px;
+box-shadow:0 2px 8px rgba(0,0,0,.08)
+}
+
+h1,h2{
+color:var(--verde)
+}
+
+.grid{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+gap:20px
+}
+
+.highlight{
+background:var(--azul);
+color:#fff
+}
+
+.btn{
+display:inline-block;
+background:var(--laranja);
+color:#fff;
+padding:12px 20px;
+border-radius:8px;
+text-decoration:none
+}
+
+table{
+width:100%;
+border-collapse:collapse
+}
+
+th{
+background:var(--verde);
+color:#fff
+}
+
+th,td{
+padding:10px;
+border:1px solid #ddd;
+text-align:center
+}
+
+form input,
+form textarea{
+width:100%;
+padding:10px;
+margin:5px 0
+}
+
+form button{
+background:var(--laranja);
+color:#fff;
+border:none;
+padding:10px 20px;
+border-radius:8px
+}
+
+img{
+max-width:100%;
+border-radius:10px
+}
+
+
+/* CARROSSEL DE IMAGENS */
+
+#carrossel-solar{
+width:100%;
+height:500px;
+overflow:hidden;
+border-radius:12px;
+position:relative;
+}
+
+#imagem-carrossel{
+width:100%;
+height:500px;
+object-fit:cover;
+border-radius:12px;
+display:block;
+opacity:1;
+transition:opacity 0.5s ease;
+}
+
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>☀ Energia Solar</h1>
+<p>Transformando luz em vida, hoje e sempre</p>
+</header>
+
+
+<nav>
+<a href="#sobre">O que é</a>
+<a href="#funcionamento">Funcionamento</a>
+<a href="#tipos">Tipos</a>
+<a href="#empresa">Empresa</a>
+<a href="#contato">Contato</a>
+</nav>
+
+
+<!-- CARROSSEL -->
+
+<div class="container" style="padding-top:20px">
+
+<div id="carrossel-solar">
+
+<img 
+id="imagem-carrossel"
+src="images (1).jpg"
+alt="Painéis solares">
+
+</div>
+
+</div>
+
+
+<div class="container">
+
+
+<section id="sobre" class="card">
+
+<h2>O que é uma Placa Solar?</h2>
+
+<p>
+Uma placa solar converte a luz do sol em energia elétrica através do efeito
+fotovoltaico. É uma fonte renovável, limpa e de longa vida útil.
+</p>
+
+</section>
+
+
+<section id="funcionamento" class="card highlight">
+
+<h2 style="color:white">Como Funciona?</h2>
+
+<p>
+Os fótons atingem as células fotovoltaicas e geram corrente elétrica,
+que é convertida por um inversor para uso residencial ou comercial.
+</p>
+
+</section>
+
+
+<section id="tipos" class="card">
+
+<h2>Tipos de Placas</h2>
+
+<table>
+
+<tr>
+<th>Tipo</th>
+<th>Eficiência</th>
+<th>Custo</th>
+</tr>
+
+<tr>
+<td>Monocristalino</td>
+<td>15–22%</td>
+<td>Alto</td>
+</tr>
+
+<tr>
+<td>Policristalino</td>
+<td>13–17%</td>
+<td>Médio</td>
+</tr>
+
+<tr>
+<td>Filme Fino</td>
+<td>7–13%</td>
+<td>Baixo</td>
+</tr>
+
+</table>
+
+</section>
+
+
+<section class="grid">
+
+<div class="card">
+
+<h2>On-Grid</h2>
+
+<p>
+Conectado à rede elétrica e gera créditos de energia.
+</p>
+
+</div>
+
+
+<div class="card">
+
+<h2>Off-Grid</h2>
+
+<p>
+Utiliza baterias para armazenar energia em locais isolados.
+</p>
+
+</div>
+
+</section>
+
+
+<section id="empresa" class="grid">
+
+<div class="card">
+<h2>Missão</h2>
+<p>Democratizar o acesso à energia solar.</p>
+</div>
+
+
+<div class="card">
+<h2>Valores</h2>
+<p>Sustentabilidade, transparência, inovação e compromisso.</p>
+</div>
+
+
+<div class="card">
+<h2>Visão</h2>
+<p>Ser referência nacional em energia solar até 2030.</p>
+</div>
+
+</section>
+
+
+<section class="card" style="text-align:center">
+
+<h2>Quer saber mais?</h2>
+
+<a class="btn" href="https://lp.motoelsolar.com.br/">
+Acesse nosso site
+</a>
+
+</section> 
+
+
+<section id="contato" class="card"> 
+
+<h2>Entre em Contato</h2> 
+
+<form> 
+
+<input type="text" placeholder="Seu nome"> 
+
+<input type="email" placeholder="Seu e-mail"> 
+
+<input type="tel" placeholder="Telefone"> 
+
+<textarea rows="5" placeholder="Mensagem"></textarea> 
+
+<button 
+type="button" 
+onclick="alert('Sua solicitação foi enviada para o técnico da Solaris!');">
+Enviar
+</button>
+
+</form>
+
+</section> 
+
+</div> 
+
+
+<footer> 
+
+<p>© 2025 Energia Solar — Todos os direitos reservados</p> 
+
+</footer> 
+
+
+<!-- JAVASCRIPT DO CARROSSEL -->
+
+<script>
+
+/*
+========================================
+DICIONÁRIO / LISTA DE IMAGENS
+========================================
+*/
+
+const imagens = [
+
+"images (1).jpg",
+
+"images (3).jpg",
+
+"images (2).jpg"
+
+];
+
+
+/*
+========================================
+IMAGEM ATUAL
+========================================
+*/
+
+let imagemAtual = 0;
+
+
+/*
+========================================
+PEGA A IMAGEM DO CARROSSEL
+========================================
+*/
+
+const imagemCarrossel =
+document.getElementById("imagem-carrossel");
+
+
+/*
+========================================
+FUNÇÃO PARA TROCAR A IMAGEM
+========================================
+*/
+
+function passarImagem(){
+
+imagemCarrossel.style.opacity = "0";
+
+
+setTimeout(function(){
+
+imagemAtual++;
+
+
+/*
+Se chegar na última imagem,
+volta para a primeira
+*/
+
+if(imagemAtual >= imagens.length){
+
+imagemAtual = 0;
+
+}
+
+
+/*
+Troca a imagem
+*/
+
+imagemCarrossel.src = imagens[imagemAtual];
+
+
+/*
+Faz a nova imagem aparecer
+*/
+
+imagemCarrossel.style.opacity = "1";
+
+},500);
+
+}
+
+
+/*
+========================================
+TROCA AUTOMÁTICA
+========================================
+*/
+
+setInterval(passarImagem,3000);
+
+</script>
+
+
+</body>
+</html>
