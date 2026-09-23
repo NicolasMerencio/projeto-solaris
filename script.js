@@ -1,10 +1,28 @@
 /* =========================================================
-   SOLARIS — SCRIPT.JS V4
-   Navegação • Carrossel • Simulador • Sistemas • Formulário
+   SOLARIS — SCRIPT.JS V5
+   Navegação • Carrossel • Simulador • Sistemas • Formulário • Supabase
 ========================================================= */
 
 (() => {
     "use strict";
+
+    const SUPABASE_URL = "https://tvkocnjtdnvjovzafvyf.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_3Q1XsL7LctLHRE3y-r7OGw_SnREkSpj";
+
+    let clienteSupabase = null;
+
+    try {
+        if (!window.supabase?.createClient) {
+            throw new Error("Biblioteca do Supabase não carregada.");
+        }
+
+        clienteSupabase = window.supabase.createClient(
+            SUPABASE_URL,
+            SUPABASE_KEY
+        );
+    } catch (error) {
+        console.error("Não foi possível inicializar o Supabase:", error);
+    }
 
     /* =========================================================
        UTILITÁRIOS
@@ -43,7 +61,7 @@
     /* =========================================================
        02. CARROSSEL AUTOMÁTICO
 
-       O HTML define o tempo em data-autoplay="6000".
+       O HTML define o tempo em data-autoplay="8000".
        Não há setas: a troca acontece automaticamente.
     ========================================================= */
 
@@ -54,7 +72,7 @@
         const pauseButton = $(".carrossel-pausa", carousel);
         const progress = $(".carrossel-progresso", carousel);
         const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-        const duration = Number(carousel.dataset.autoplay) || 6000;
+        const duration = Number(carousel.dataset.autoplay) || 8000;
 
         let currentSlide = 0;
         let slideTimer = null;
@@ -317,7 +335,7 @@
 
     /* =========================================================
        05. FORMULÁRIO DE CONTATO
-       Validação local até existir back-end/API.
+       Validação + envio para o Supabase.
     ========================================================= */
 
     const form = $("#form-contato");
@@ -352,7 +370,7 @@
         }
     });
 
-    form?.addEventListener("submit", (event) => {
+    form?.addEventListener("submit", async (event) => {
         event.preventDefault();
         showFormMessage("");
 
@@ -361,23 +379,83 @@
 
         if (invalid) {
             invalid.reportValidity();
-            showFormMessage("Revise os campos obrigatórios antes de enviar.", "erro");
+            showFormMessage(
+                "Revise os campos obrigatórios antes de enviar.",
+                "erro"
+            );
             invalid.focus();
             return;
         }
 
-        const message = $("#mensagem", form);
+        const nome = $("#nome", form)?.value.trim() || "";
+        const email = $("#email", form)?.value.trim() || "";
+        const telefone = $("#telefone", form)?.value.trim() || "";
+        const empresa = $("#empresa", form)?.value.trim() || "";
+        const assunto = $("#assunto", form)?.value || "";
+        const mensagem = $("#mensagem", form)?.value.trim() || "";
+        const botao = form.querySelector("button[type='submit']");
 
-        if (message && message.value.trim().length < 10) {
-            showFormMessage("Escreva uma mensagem com pelo menos 10 caracteres.", "erro");
-            message.focus();
+        if (mensagem.length < 10) {
+            showFormMessage(
+                "Escreva uma mensagem com pelo menos 10 caracteres.",
+                "erro"
+            );
+            $("#mensagem", form)?.focus();
             return;
         }
 
-        showFormMessage(
-            "Mensagem validada. O envio real será conectado ao back-end posteriormente.",
-            "sucesso"
-        );
+        if (!clienteSupabase) {
+            showFormMessage(
+                "Não foi possível conectar ao banco de dados.",
+                "erro"
+            );
+            return;
+        }
+
+        if (botao) {
+            botao.disabled = true;
+            botao.textContent = "Enviando...";
+        }
+
+        try {
+            const { error } = await clienteSupabase.rpc(
+                "enviar_mensagem",
+                {
+                    p_nome: nome,
+                    p_email: email,
+                    p_telefone: telefone,
+                    p_empresa: empresa,
+                    p_assunto: assunto,
+                    p_mensagem: mensagem
+                }
+            );
+
+            if (error) {
+                console.error("Erro ao enviar mensagem:", error);
+                showFormMessage(
+                    "Não foi possível enviar sua mensagem. Tente novamente.",
+                    "erro"
+                );
+                return;
+            }
+
+            form.reset();
+            showFormMessage(
+                "Mensagem enviada com sucesso! Obrigado pelo contato.",
+                "sucesso"
+            );
+        } catch (error) {
+            console.error("Erro de conexão com o Supabase:", error);
+            showFormMessage(
+                "Não foi possível enviar sua mensagem. Tente novamente.",
+                "erro"
+            );
+        } finally {
+            if (botao) {
+                botao.disabled = false;
+                botao.textContent = "Enviar mensagem";
+            }
+        }
     });
 
     /* =========================================================
