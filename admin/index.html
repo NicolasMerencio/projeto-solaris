@@ -1,17 +1,409 @@
 <!DOCTYPE html>
-
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1" name="viewport"/>
-<meta content="dark" name="color-scheme"/>
-<title>Solaris — Área administrativa</title>
-<meta content="Área administrativa privada da Solaris." name="description"/><link href="../style.css" rel="stylesheet"/>
-<link href="../imagens/favicon.ico" rel="icon" type="image/x-icon"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#01260A">
+  <meta name="color-scheme" content="light dark">
+  <title>Solaris — Administração</title>
+  <meta name="description" content="Painel administrativo privado da Solaris.">
+  <link rel="icon" href="../imagens/favicon.ico" type="image/x-icon">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="admin.css">
 </head>
-<body data-page="admin">
-<main aria-live="polite" id="admin-root"></main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script defer="" src="../script.js"></script>
+
+<body data-page="admin" data-theme="light">
+  <a class="skip-link" href="#conteudo-admin">Pular para o conteúdo</a>
+
+  <!-- =====================================================
+       01. LOGIN
+       ===================================================== -->
+  <main id="admin-login" class="admin-login-screen" data-admin-view="login">
+    <section class="login-card" aria-labelledby="titulo-login-admin">
+      <div class="brand-lockup" aria-label="Solaris Administração">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>
+          <strong>SOLARIS</strong>
+          <small>ADMINISTRAÇÃO</small>
+        </span>
+      </div>
+
+      <div class="login-copy">
+        <p class="eyebrow">ACESSO PRIVADO</p>
+        <h1 id="titulo-login-admin">Entrar no painel.</h1>
+        <p>Acompanhe o site e gerencie o conteúdo da Solaris em um só lugar.</p>
+      </div>
+
+      <form id="admin-login-form" novalidate>
+        <label>
+          <span>E-mail</span>
+          <input id="admin-email" name="email" type="email" autocomplete="username" inputmode="email" maxlength="254" placeholder="admin@exemplo.com" required>
+        </label>
+        <label>
+          <span>Senha</span>
+          <input id="admin-password" name="password" type="password" autocomplete="current-password" maxlength="128" placeholder="Sua senha" required>
+        </label>
+        <button id="admin-login-submit" class="button button-primary button-wide" type="submit">Entrar</button>
+        <p id="admin-login-feedback" class="feedback" role="status" aria-live="polite"></p>
+      </form>
+
+      <a class="login-back" href="../index.html">← Voltar para a Solaris</a>
+    </section>
+  </main>
+
+  <!-- =====================================================
+       02. APLICAÇÃO ADMINISTRATIVA
+       ===================================================== -->
+  <main id="conteudo-admin" class="admin-app" data-admin-view="dashboard" hidden>
+    <aside class="sidebar" aria-label="Navegação administrativa">
+      <div class="sidebar-top">
+        <a class="sidebar-brand" href="../index.html" aria-label="Voltar para Solaris">
+          <span class="brand-mark small" aria-hidden="true">S</span>
+          <span>
+            <strong>SOLARIS</strong>
+            <small>ADMIN</small>
+          </span>
+        </a>
+
+        <nav class="side-nav" id="admin-navigation" aria-label="Seções do painel">
+          <p class="nav-label">PAINEL</p>
+          <button class="side-link is-active" type="button" data-admin-tab="overview" aria-selected="true">
+            <span class="side-icon" aria-hidden="true">⌂</span>
+            <span>Início</span>
+          </button>
+          <button class="side-link" type="button" data-admin-tab="messages" aria-selected="false">
+            <span class="side-icon" aria-hidden="true">✉</span>
+            <span>Mensagens</span>
+            <span id="admin-messages-badge" class="count-badge" hidden>0</span>
+          </button>
+
+          <p class="nav-label section-label">CONTEÚDO</p>
+          <button class="side-link" type="button" data-admin-tab="brazil" aria-selected="false">
+            <span class="side-icon" aria-hidden="true">◈</span>
+            <span>Brasil</span>
+          </button>
+
+          <p class="nav-label section-label">ACESSOS</p>
+          <button class="side-link" type="button" data-admin-tab="analytics" aria-selected="false">
+            <span class="side-icon" aria-hidden="true">↗</span>
+            <span>Analytics</span>
+          </button>
+        </nav>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="admin-user-mini">
+          <span class="user-avatar" aria-hidden="true">N</span>
+          <div>
+            <strong id="admin-sidebar-user">Administrador</strong>
+            <small>Acesso autorizado</small>
+          </div>
+        </div>
+        <button id="admin-theme-toggle" class="utility-link" type="button" aria-pressed="false">
+          <span aria-hidden="true">☾</span><span>Modo escuro</span>
+        </button>
+        <button id="admin-logout" class="utility-link danger-link" type="button">
+          <span aria-hidden="true">↪</span><span>Sair</span>
+        </button>
+      </div>
+    </aside>
+
+    <section class="admin-content-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">SOLARIS ADMIN</p>
+          <h1 id="admin-page-title">Início</h1>
+          <p id="admin-user-description" class="topbar-subtitle">Aqui está o que aconteceu no Solaris.</p>
+        </div>
+        <button id="admin-overview-refresh" class="button button-ghost topbar-refresh" type="button">Atualizar</button>
+      </header>
+
+      <div id="admin-global-feedback" class="global-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+
+      <!-- ===================================================
+           INÍCIO
+           =================================================== -->
+      <section id="admin-panel-overview" class="admin-panel is-active" data-admin-panel="overview">
+        <div class="welcome-line">
+          <div>
+            <p class="eyebrow">RESUMO</p>
+            <h2>O que está acontecendo?</h2>
+            <p class="section-note">Uma visão rápida para você não precisar abrir tabela por tabela.</p>
+          </div>
+        </div>
+
+        <div class="metric-grid overview-metrics">
+          <article class="metric-card accent-green">
+            <span>Mensagens novas</span>
+            <strong id="admin-stat-new-messages">—</strong>
+            <small id="admin-stat-new-messages-meta">Carregando...</small>
+          </article>
+          <article class="metric-card">
+            <span>Visitas</span>
+            <strong id="admin-stat-sessions">—</strong>
+            <small id="admin-stat-sessions-meta">Carregando...</small>
+          </article>
+          <article class="metric-card">
+            <span>Visualizações</span>
+            <strong id="admin-stat-page-views">—</strong>
+            <small id="admin-stat-page-views-meta">Carregando...</small>
+          </article>
+          <article class="metric-card">
+            <span>Interações</span>
+            <strong id="admin-stat-interactions">—</strong>
+            <small id="admin-stat-interactions-meta">Carregando...</small>
+          </article>
+          <article class="metric-card metric-card-wide">
+            <span>Última atividade</span>
+            <strong id="admin-stat-latest" class="metric-date">—</strong>
+            <small id="admin-stat-latest-meta">Carregando...</small>
+          </article>
+        </div>
+
+        <div class="overview-grid">
+          <article class="panel-card">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">ATIVIDADE</p>
+                <h3>O que aconteceu recentemente</h3>
+              </div>
+              <button class="button button-ghost" type="button" data-admin-go="analytics">Ver analytics</button>
+            </div>
+            <div id="admin-recent-events" class="activity-list" aria-live="polite">
+              <p class="empty-state">Carregando atividade...</p>
+            </div>
+          </article>
+
+          <article class="panel-card">
+            <div class="card-heading">
+              <div>
+                <p class="eyebrow">CONTATO</p>
+                <h3>Mensagens recentes</h3>
+              </div>
+              <button class="button button-ghost" type="button" data-admin-go="messages">Ver todas</button>
+            </div>
+            <div id="admin-recent-messages" class="activity-list" aria-live="polite">
+              <p class="empty-state">Carregando mensagens...</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===================================================
+           MENSAGENS
+           =================================================== -->
+      <section id="admin-panel-messages" class="admin-panel" data-admin-panel="messages" hidden>
+        <div class="section-head-row">
+          <div>
+            <p class="eyebrow">CONTATO</p>
+            <h2>Mensagens</h2>
+            <p class="section-note">Leia, organize e responda mentalmente o que chegou pelo site.</p>
+          </div>
+          <button id="admin-messages-refresh" class="button button-ghost" type="button">Atualizar</button>
+        </div>
+
+        <div class="toolbar-row">
+          <label class="search-field">
+            <span class="sr-only">Buscar mensagens</span>
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input id="admin-message-search" type="search" placeholder="Buscar nome, e-mail ou assunto" autocomplete="off">
+          </label>
+          <label class="select-field">
+            <span class="sr-only">Filtrar mensagens</span>
+            <select id="admin-message-status-filter">
+              <option value="">Todas</option>
+              <option value="nova">Novas</option>
+              <option value="lida">Lidas</option>
+              <option value="respondida">Respondidas</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="message-list-wrap">
+          <table class="clean-table">
+            <caption class="sr-only">Mensagens recebidas</caption>
+            <thead>
+              <tr><th>Data</th><th>Contato</th><th>Assunto</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody id="admin-messages-body">
+              <tr><td colspan="5" class="empty-cell">Carregando mensagens...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination-row">
+          <button id="admin-messages-prev" class="button button-ghost" type="button" disabled>← Anterior</button>
+          <span id="admin-messages-page">Página 1</span>
+          <button id="admin-messages-next" class="button button-ghost" type="button" disabled>Próxima →</button>
+        </div>
+      </section>
+
+      <!-- ===================================================
+           BRASIL
+           =================================================== -->
+      <section id="admin-panel-brazil" class="admin-panel" data-admin-panel="brazil" hidden>
+        <div class="section-head-row">
+          <div>
+            <p class="eyebrow">CONTEÚDO</p>
+            <h2>Brasil</h2>
+            <p class="section-note">Os dados históricos e suas fontes ficam juntos porque trabalham em conjunto.</p>
+          </div>
+          <button id="admin-brazil-new" class="button button-primary" type="button">+ Novo ano</button>
+        </div>
+
+        <div class="subnav" role="tablist" aria-label="Conteúdo do Brasil">
+          <button class="subnav-button is-active" type="button" role="tab" aria-selected="true" data-brazil-view="data">Dados</button>
+          <button class="subnav-button" type="button" role="tab" aria-selected="false" data-brazil-view="sources">Fontes</button>
+        </div>
+
+        <div data-brazil-section="data">
+          <div class="latest-brazil-card">
+            <div>
+              <span class="eyebrow">EDIÇÃO DOS DADOS</span>
+              <h3>Histórico de energia solar</h3>
+            </div>
+            <p>Edite os valores que alimentam a área pública.</p>
+          </div>
+
+          <form id="admin-brazil-form" class="edit-card" hidden novalidate>
+            <input id="admin-brazil-id" name="id" type="hidden">
+            <div class="edit-card-title"><span class="eyebrow">REGISTRO</span><h3>Adicionar ou editar ano</h3></div>
+            <div class="form-grid">
+              <label><span>Ano</span><input id="admin-brazil-year" name="ano" type="number" min="1900" max="2200" required></label>
+              <label><span>Capacidade (GW)</span><input id="admin-brazil-capacity" name="capacidade_gw" type="number" min="0" step="0.01" required></label>
+              <label><span>Geração (TWh)</span><input id="admin-brazil-generation" name="geracao_twh" type="number" min="0" step="0.01" required></label>
+              <label><span>Participação (%)</span><input id="admin-brazil-share" name="participacao_percentual" type="number" min="0" max="100" step="0.01" required></label>
+              <label class="field-wide"><span>Fonte</span><select id="admin-brazil-source" name="fonte_id"><option value="">Sem fonte selecionada</option></select></label>
+            </div>
+            <div class="form-actions"><button id="admin-brazil-save" class="button button-primary" type="submit">Salvar</button><button id="admin-brazil-cancel" class="button button-ghost" type="button">Cancelar</button></div>
+            <p id="admin-brazil-feedback" class="feedback" role="status" aria-live="polite"></p>
+          </form>
+
+          <div class="message-list-wrap">
+            <table class="clean-table compact-table">
+              <caption class="sr-only">Histórico de dados do Brasil</caption>
+              <thead><tr><th>Ano</th><th>Capacidade</th><th>Geração</th><th>Participação</th><th>Fonte</th><th></th></tr></thead>
+              <tbody id="admin-brazil-body"><tr><td colspan="6" class="empty-cell">Carregando dados...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div data-brazil-section="sources" hidden>
+          <div class="section-head-row nested-head">
+            <div><p class="eyebrow">REFERÊNCIAS</p><h3>Fontes usadas pelo conteúdo</h3></div>
+            <button id="admin-source-new" class="button button-primary" type="button">+ Nova fonte</button>
+          </div>
+
+          <form id="admin-source-form" class="edit-card" hidden novalidate>
+            <input id="admin-source-id" name="id" type="hidden">
+            <div class="form-grid">
+              <label><span>Instituição</span><input id="admin-source-institution" name="instituicao" type="text" maxlength="250" required></label>
+              <label><span>Ano</span><input id="admin-source-year" name="ano" type="number" min="1900" max="2200" required></label>
+              <label class="field-wide"><span>Título</span><input id="admin-source-title" name="titulo" type="text" maxlength="500" required></label>
+              <label class="field-wide"><span>URL</span><input id="admin-source-url" name="url" type="url" maxlength="2000" placeholder="https://" required></label>
+            </div>
+            <div class="form-actions"><button id="admin-source-save" class="button button-primary" type="submit">Salvar</button><button id="admin-source-cancel" class="button button-ghost" type="button">Cancelar</button></div>
+            <p id="admin-source-feedback" class="feedback" role="status" aria-live="polite"></p>
+          </form>
+
+          <div class="source-cards" id="admin-sources-body"></div>
+        </div>
+      </section>
+
+      <!-- ===================================================
+           ANALYTICS
+           =================================================== -->
+      <section id="admin-panel-analytics" class="admin-panel" data-admin-panel="analytics" hidden>
+        <div class="section-head-row">
+          <div>
+            <p class="eyebrow">ACESSOS</p>
+            <h2>Analytics</h2>
+            <p class="section-note">Uma leitura simples das visitas e do que os visitantes fizeram.</p>
+          </div>
+          <button id="admin-analytics-refresh" class="button button-ghost" type="button">Atualizar</button>
+        </div>
+
+        <div class="toolbar-row analytics-toolbar">
+          <label class="select-field"><span>Período</span><select id="admin-analytics-period-filter"><option value="7" selected>Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="all">Todo o histórico</option></select></label>
+          <label class="select-field"><span>Atividade</span><select id="admin-analytics-type-filter"><option value="">Todas</option><option value="page_view">Visualizações</option><option value="simulador_usado">Simulador</option><option value="formulario_iniciado">Formulário iniciado</option><option value="formulario_enviado">Formulário enviado</option></select></label>
+          <span id="admin-analytics-period-label" class="period-label">Últimos 7 dias</span>
+        </div>
+
+        <div class="metric-grid analytics-metrics">
+          <article class="metric-card"><span>Visitas</span><strong id="admin-analytics-stat-visits">0</strong><small>Sessões identificadas</small></article>
+          <article class="metric-card"><span>Visualizações</span><strong id="admin-analytics-stat-views">0</strong><small>Por sessão e página</small></article>
+          <article class="metric-card"><span>Interações</span><strong id="admin-analytics-stat-interactions">0</strong><small>Simulador e formulário</small></article>
+          <article class="metric-card metric-card-wide"><span>Última atividade</span><strong id="admin-analytics-stat-latest" class="metric-date">—</strong><small>Evento mais recente</small></article>
+        </div>
+
+        <div class="analytics-grid">
+          <article class="panel-card chart-card">
+            <div class="card-heading"><div><p class="eyebrow">MOVIMENTO</p><h3>Atividade por dia</h3></div></div>
+            <div id="admin-analytics-chart" class="analytics-chart" aria-label="Gráfico de atividade por dia"></div>
+          </article>
+          <article class="panel-card">
+            <div class="card-heading"><div><p class="eyebrow">AÇÕES</p><h3>O que os visitantes fazem</h3></div></div>
+            <div id="admin-analytics-breakdown" class="analytics-breakdown"></div>
+          </article>
+        </div>
+
+        <article class="panel-card section-card-spacing">
+          <div class="card-heading"><div><p class="eyebrow">ATIVIDADE RECENTE</p><h3>Últimos eventos</h3></div></div>
+          <div class="message-list-wrap">
+            <table class="clean-table">
+              <thead><tr><th>Data</th><th>Ação</th><th>Página</th></tr></thead>
+              <tbody id="admin-analytics-body"><tr><td colspan="3" class="empty-cell">Carregando atividade...</td></tr></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel-card section-card-spacing">
+          <div class="card-heading">
+            <div><p class="eyebrow">ACESSOS</p><h3>Visitas recentes</h3><p class="card-note">Sem UUIDs e sem detalhes técnicos desnecessários.</p></div>
+            <button id="admin-sessions-refresh" class="button button-ghost" type="button">Atualizar acessos</button>
+          </div>
+
+          <div class="metric-mini-grid">
+            <div><span>Total</span><strong id="admin-sessions-stat-total">0</strong></div>
+            <div><span>Desktop</span><strong id="admin-sessions-stat-desktop">0</strong></div>
+            <div><span>Celular / tablet</span><strong id="admin-sessions-stat-mobile">0</strong></div>
+            <div><span>Último acesso</span><strong id="admin-sessions-stat-latest">—</strong></div>
+          </div>
+
+          <div class="message-list-wrap">
+            <table class="clean-table">
+              <thead><tr><th>Início</th><th>Última atividade</th><th>Página inicial</th><th>Dispositivo</th></tr></thead>
+              <tbody id="admin-sessions-body"><tr><td colspan="4" class="empty-cell">Carregando acessos...</td></tr></tbody>
+            </table>
+          </div>
+          <div class="pagination-row"><button id="admin-sessions-prev" class="button button-ghost" type="button" disabled>← Anterior</button><span id="admin-sessions-page">Página 1</span><button id="admin-sessions-next" class="button button-ghost" type="button" disabled>Próxima →</button></div>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <!-- =====================================================
+       03. MODAL DE MENSAGEM
+       ===================================================== -->
+  <dialog id="admin-message-dialog" class="message-dialog" aria-labelledby="admin-message-dialog-title">
+    <div class="dialog-card">
+      <header class="dialog-header"><div><p class="eyebrow">MENSAGEM</p><h2 id="admin-message-dialog-title">Detalhes</h2></div><button id="admin-message-dialog-close" class="button button-ghost" type="button">Fechar</button></header>
+      <div id="admin-message-details" class="message-details"><p class="empty-state">Selecione uma mensagem.</p></div>
+      <form id="admin-message-edit-form" class="edit-card" hidden>
+        <input id="admin-message-id" type="hidden">
+        <label><span>Status</span><select id="admin-message-status" name="status"><option value="nova">Nova</option><option value="lida">Lida</option><option value="respondida">Respondida</option></select></label>
+        <label><span>Observações internas</span><textarea id="admin-message-notes" name="observacoes" rows="5" maxlength="5000"></textarea></label>
+        <div class="form-actions"><button class="button button-primary" type="submit">Salvar alterações</button><button id="admin-message-delete" class="button button-danger" type="button">Excluir</button></div>
+        <p id="admin-message-feedback" class="feedback" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </dialog>
+
+  <div id="admin-toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="admin.js" defer></script>
 </body>
 </html>

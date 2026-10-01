@@ -1,99 +1,165 @@
-/* =========================================================
-   SOLARIS — SCRIPT.JS V6
-   Interação • Tema • Jornada • Simuladores • Supabase
+/* ================================================================
+   SOLARIS — SCRIPT.JS
+   Página pública • Interações • Supabase • Analytics
 
-   BACKEND V6 — contrato usado pelo frontend
-   ---------------------------------------------
-   View pública de leitura:
-   1) vw_dados_brasil
-      - ano
-      - capacidade_gw
-      - geracao_twh
-      - participacao_percentual
-      - fonte_instituicao
-      - fonte_titulo
-      - fonte_ano
-      - fonte_url
+   Arquitetura:
+   01. Configuração
+   02. Estado
+   03. Utilitários
+   04. Supabase / API
+   05. Tema
+   06. Navegação
+   07. Carrossel
+   08. Sistemas
+   09. Simulador
+   10. Brasil
+   11. Formulário
+   12. Analytics
+   13. Toast / Feedback
+   14. Rodapé
+   15. Inicialização
 
-   A view reúne dados_brasil + fontes e deixa o frontend
-   independente da estrutura interna dessas tabelas.
-
-   Formulário público:
-   - RPC atual: enviar_mensagem (legado, já existente)
-   - RPC V6 preferida: enviar_mensagem_v6
-     Parâmetros:
-       p_nome
-       p_email
-       p_telefone
-       p_perfil
-       p_empresa
-       p_assunto
-       p_interesses   JSONB/text[] aceito pelo backend
-       p_mensagem
-
-   O JS tenta primeiro a RPC V6. Se ela ainda não existir,
-   usa a RPC legado para manter o formulário funcional enquanto
-   o banco é migrado.
-========================================================= */
+   IMPORTANTE:
+   - Este arquivo pertence SOMENTE ao site público.
+   - O painel administrativo usa admin.js e admin.css próprios.
+   - Nenhuma regra, consulta ou autenticação administrativa fica aqui.
+   - Os nomes abaixo correspondem ao index.html atual.
+================================================================ */
 
 (() => {
     "use strict";
 
-    /* =========================================================
-       00. CONFIGURAÇÃO
-    ========================================================== */
+    const SOLARIS_PUBLIC_JS_VERSION = "2026.10.01-public-v3";
+    document.documentElement.dataset.solarisJs = SOLARIS_PUBLIC_JS_VERSION;
 
-    const SUPABASE_URL = "https://tvkocnjtdnvjovzafvyf.supabase.co";
-    const SUPABASE_KEY = "sb_publishable_3Q1XsL7LctLHRE3y-r7OGw_SnREkSpj";
+    /* ============================================================
+       01. CONFIGURAÇÃO
+    ============================================================ */
 
-    const BACKEND = {
-        brasilView: "vw_dados_brasil",
-        formRpcV6: "enviar_mensagem_v6",
-        formRpcLegacy: "enviar_mensagem"
-    };
+    const CONFIG = Object.freeze({
+        supabase: Object.freeze({
+            url: "https://tvkocnjtdnvjovzafvyf.supabase.co",
+            key: "sb_publishable_3Q1XsL7LctLHRE3y-r7OGw_SnREkSpj"
+        }),
 
-    let clienteSupabase = null;
-    let preferenciaRpcV6 = null;
+        backend: Object.freeze({
+            brazilTable: "dados_brasil",
+            messageRpc: "enviar_mensagem",
+            sessionsTable: "sessoes",
+            analyticsTable: "eventos_analytics"
+        }),
 
-    const criarClienteSupabase = () => {
-        if (!window.supabase?.createClient) {
-            throw new Error("Biblioteca do Supabase não carregada.");
+        limits: Object.freeze({
+            requestTimeout: 10000,
+            analyticsBatchDelay: 700,
+            messageCooldown: 30000,
+            carouselSwipeThreshold: 44,
+            toastDuration: 4200,
+            analyticsBatchMax: 25,
+            analyticsQueueMax: 80,
+            analyticsRetryLimit: 2
+        }),
+
+        storage: Object.freeze({
+            theme: "solaris-theme",
+            sessionId: "solaris-session-id",
+            pageViewPrefix: "solaris-page-view",
+            lastMessage: "solaris-last-message"
+        })
+    });
+
+    let supabaseClient = null;
+
+    /* ============================================================
+       02. ESTADO DA APLICAÇÃO
+    ============================================================ */
+
+    const state = {
+        theme: "light",
+
+        mobileMenu: {
+            open: false
+        },
+
+        carousel: {
+            index: 0,
+            paused: false,
+            timer: null,
+            progressTimer: null,
+            progressStartedAt: 0,
+            duration: 8000,
+            hoverPaused: false,
+            focusPaused: false,
+            touchStartX: null
+        },
+
+        simulator: {
+            lastResult: null
+        },
+
+        brazil: {
+            data: [],
+            metric: "capacidade",
+            usingFallback: false,
+            loading: false,
+            requestId: 0
+        },
+
+        analytics: {
+            sessionId: null,
+            pending: [],
+            queue: [],
+            flushTimer: null,
+            flushing: false,
+            initialized: false,
+            pageViewTracked: false
         }
-        return window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-            auth: {
-                persistSession: false,
-                autoRefreshToken: false,
-                detectSessionInUrl: false
-            }
-        });
     };
 
-    /* =========================================================
-       01. UTILITÁRIOS
-    ========================================================== */
+    /* ============================================================
+       03. UTILITÁRIOS
+    ============================================================ */
 
-    const $ = (selector, context = document) => context.querySelector(selector);
-    const $$ = (selector, context = document) => [...context.querySelectorAll(selector)];
+    /*
+     * Proteção de compatibilidade: caso uma versão anterior do script seja
+     * carregada junto com esta, garantimos que o estado do Brasil exista
+     * antes de qualquer leitura em loadBrazilData().
+     */
+    state.brasil ??= {
+        data: [],
+        metric: "capacidade",
+        usingFallback: false,
+        loading: false,
+        requestId: 0
+    };
+
+    const $ = (selector, context = document) => {
+        try {
+            return context.querySelector(selector);
+        } catch {
+            return null;
+        }
+    };
+
+    const $$ = (selector, context = document) => {
+        try {
+            return [...context.querySelectorAll(selector)];
+        } catch {
+            return [];
+        }
+    };
 
     const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-    const safeNumber = (value, fallback = 0) => {
+    const toNumber = (value, fallback = 0) => {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : fallback;
     };
 
-    const formatPtNumber = (value, maximumFractionDigits = 1) =>
-        new Intl.NumberFormat("pt-BR", {
-            minimumFractionDigits: 0,
-            maximumFractionDigits
-        }).format(safeNumber(value));
-
-    const escapeSvgText = (value) => String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&apos;");
+    const formatNumber = (value, digits = 1) => new Intl.NumberFormat("pt-BR", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: digits
+    }).format(toNumber(value));
 
     const escapeHtml = (value) => String(value ?? "")
         .replaceAll("&", "&amp;")
@@ -102,1149 +168,1631 @@
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
 
-    const isEditableTarget = (target) =>
-        target instanceof HTMLElement &&
-        ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName);
+    const safeUrl = (value) => {
+        if (!value) return null;
 
-    const withTimeout = (promise, ms, message = "Tempo limite excedido.") =>
-        Promise.race([
-            promise,
-            new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
-        ]);
-
-
-
-    if (document.body.dataset.page === "admin") {
         try {
-            clienteSupabase = criarClienteSupabase();
-        } catch (error) {
-            console.error(error);
-        }
-        initAdmin(clienteSupabase);
-        return;
-    }
-
-    try {
-        clienteSupabase = criarClienteSupabase();
-    } catch (error) {
-        console.error(error);
-    }
-
-    /* =========================================================
-       02. TEMA — CLARO / ESCURO
-    ========================================================== */
-
-    const themeToggle = $("#toggle-tema");
-    const themeIcon = themeToggle?.querySelector("span[aria-hidden]");
-    const themeLabel = themeToggle?.querySelector(".texto-tema");
-    const siteBody = document.body;
-    const themeStorageKey = "solaris-theme";
-    const systemTheme = window.matchMedia?.("(prefers-color-scheme: dark)");
-
-    const getStoredTheme = () => {
-        try {
-            const stored = localStorage.getItem(themeStorageKey);
-            return stored === "dark" || stored === "light" ? stored : null;
+            const url = new URL(String(value), window.location.href);
+            if (!["http:", "https:"].includes(url.protocol)) return null;
+            return url.href;
         } catch {
             return null;
         }
     };
 
-    const getInitialTheme = () => {
-        const stored = getStoredTheme();
-        if (stored) return stored;
-        return systemTheme?.matches ? "dark" : "light";
+
+    const withTimeout = async (promise, ms = CONFIG.limits.requestTimeout) => {
+        let timeoutId = null;
+
+        const timeout = new Promise((_, reject) => {
+            timeoutId = window.setTimeout(() => {
+                reject(new Error("Tempo limite excedido."));
+            }, ms);
+        });
+
+        try {
+            return await Promise.race([promise, timeout]);
+        } finally {
+            if (timeoutId !== null) window.clearTimeout(timeoutId);
+        }
     };
 
-    const applyTheme = (theme, persist = true) => {
-        const normalized = theme === "dark" ? "dark" : "light";
-        siteBody.dataset.theme = normalized;
+    const prefersReducedMotion = () => {
+        return window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+    };
 
-        const dark = normalized === "dark";
-        const label = dark ? "Ativar modo claro" : "Ativar modo escuro";
-
-        themeToggle?.setAttribute("aria-pressed", String(dark));
-        themeToggle?.setAttribute("aria-label", label);
-
-        if (themeIcon) themeIcon.textContent = dark ? "☀" : "☾";
-        if (themeLabel) themeLabel.textContent = dark ? "Modo claro" : "Modo escuro";
-
-        if (persist) {
+    const safeStorage = {
+        get(storage, key) {
             try {
-                localStorage.setItem(themeStorageKey, normalized);
+                return storage?.getItem(key) ?? null;
             } catch {
-                /* Preferência local indisponível: tema continua funcionando. */
+                return null;
+            }
+        },
+
+        set(storage, key, value) {
+            try {
+                storage?.setItem(key, value);
+                return true;
+            } catch {
+                return false;
+            }
+        },
+
+        remove(storage, key) {
+            try {
+                storage?.removeItem(key);
+                return true;
+            } catch {
+                return false;
             }
         }
     };
 
-    const toggleTheme = () => {
-        applyTheme(siteBody.dataset.theme === "dark" ? "light" : "dark");
+    const announce = (element, text) => {
+        if (element) element.textContent = text;
     };
 
-    applyTheme(getInitialTheme(), false);
-
-    themeToggle?.addEventListener("click", toggleTheme);
-
-    systemTheme?.addEventListener?.("change", (event) => {
-        if (!getStoredTheme()) {
-            applyTheme(event.matches ? "dark" : "light", false);
-        }
-    });
-
-    /* =========================================================
-       03. MENU PRINCIPAL / MENU MOBILE
-    ========================================================== */
-
-    const menuToggle = $("#menu-toggle");
-    const mobileMenu = $("#menu-principal");
-    const navDropdown = $(".nav-dropdown");
-    const mobileMenuLinks = $$('a[href^="#"]', mobileMenu || document);
-
-    const setMobileMenu = (open) => {
-        if (!mobileMenu || !menuToggle) return;
-
-        mobileMenu.hidden = !open;
-        menuToggle.setAttribute("aria-expanded", String(open));
-        menuToggle.setAttribute("aria-label", open ? "Fechar menu" : "Abrir menu");
-
-        const icon = menuToggle.querySelector("span[aria-hidden]");
-        if (icon) icon.textContent = open ? "×" : "☰";
-
-        siteBody.classList.toggle("menu-aberto", open);
+    const setHidden = (element, hidden) => {
+        if (!element) return;
+        element.hidden = Boolean(hidden);
     };
 
-    menuToggle?.addEventListener("click", () => {
-        setMobileMenu(mobileMenu?.hidden !== false);
-    });
+    const generateUuid = () => {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
 
-    mobileMenuLinks.forEach((link) => {
-        link.addEventListener("click", () => setMobileMenu(false));
-    });
+        if (window.crypto?.getRandomValues) {
+            const bytes = new Uint8Array(16);
+            window.crypto.getRandomValues(bytes);
+            bytes[6] = (bytes[6] & 0x0f) | 0x40;
+            bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
-    document.addEventListener("click", (event) => {
-        if (mobileMenu?.hidden === false && !mobileMenu.contains(event.target) && !menuToggle?.contains(event.target)) {
-            setMobileMenu(false);
+            const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+            return [
+                hex.slice(0, 4).join(""),
+                hex.slice(4, 6).join(""),
+                hex.slice(6, 8).join(""),
+                hex.slice(8, 10).join(""),
+                hex.slice(10, 16).join("")
+            ].join("-");
         }
 
-        if (navDropdown?.open && !navDropdown.contains(event.target)) {
-            navDropdown.open = false;
+        const random = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+        return `${random()}${random()}-${random()}-4${random().slice(1)}-${(8 + Math.floor(Math.random() * 4)).toString(16)}${random().slice(1)}-${random()}${random()}${random()}`;
+    };
+
+    const isValidEmail = (value) => {
+        const normalized = String(value || "").trim();
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+    };
+
+    const getPageName = () => {
+        const pathname = window.location.pathname || "/";
+        return pathname || "/";
+    };
+
+    /* ============================================================
+       04. SUPABASE / API
+    ============================================================ */
+
+    function createSupabaseClient() {
+        if (!window.supabase?.createClient) {
+            console.warn("Solaris: biblioteca do Supabase não encontrada.");
+            return null;
         }
-    });
 
-    document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-            setMobileMenu(false);
-            if (navDropdown) navDropdown.open = false;
+        try {
+            return window.supabase.createClient(
+                CONFIG.supabase.url,
+                CONFIG.supabase.key,
+                {
+                    auth: {
+                        persistSession: false,
+                        autoRefreshToken: false,
+                        detectSessionInUrl: false
+                    }
+                }
+            );
+        } catch (error) {
+            console.error("Solaris: não foi possível criar o cliente Supabase.", error);
+            return null;
         }
-    });
+    }
 
-    /* =========================================================
-       04. NAVEGAÇÃO — SEÇÃO ATIVA
-    ========================================================== */
+    async function apiSelectBrazil() {
+        if (!supabaseClient) {
+            throw new Error("Supabase indisponível.");
+        }
 
-    const navSectionLinks = $$('nav a[href^="#"]');
-    const mainSections = $$('main > section[id]');
+        /*
+         * A consulta usa a tabela principal diretamente e traz a fonte pela
+         * relação FK. Isso evita depender da view para a camada pública e
+         * mantém o mesmo conjunto de informações usado pelo gráfico.
+         */
+        return withTimeout(
+            supabaseClient
+                .from(CONFIG.backend.brazilTable)
+                .select(`
+                    ano,
+                    capacidade_gw,
+                    geracao_twh,
+                    participacao_percentual,
+                    fonte_id,
+                    fonte:fontes (
+                        instituicao,
+                        titulo,
+                        ano,
+                        url
+                    )
+                `)
+                .order("ano", { ascending: true })
+        );
+    }
 
-    if ("IntersectionObserver" in window && navSectionLinks.length && mainSections.length) {
+    async function apiSendMessage(payload) {
+        if (!supabaseClient) {
+            throw new Error("Supabase indisponível.");
+        }
+
+        return withTimeout(
+            supabaseClient.rpc(CONFIG.backend.messageRpc, payload)
+        );
+    }
+
+    async function apiCreateSession(payload) {
+        if (!supabaseClient) return null;
+
+        const existing = safeStorage.get(window.sessionStorage, CONFIG.storage.sessionId);
+        if (existing) {
+            return {
+                data: { id: existing },
+                error: null
+            };
+        }
+
+        /*
+         * O visitante pode INSERT em sessoes, mas não precisa ler a linha.
+         * O UUID é criado no navegador e devolvido localmente depois do INSERT.
+         * Isso respeita o RLS atual e evita depender de SELECT público.
+         */
+        const id = generateUuid();
+
+        const { error } = await withTimeout(
+            supabaseClient
+                .from(CONFIG.backend.sessionsTable)
+                .insert({
+                    id,
+                    ...payload
+                })
+        );
+
+        if (error) throw error;
+
+        safeStorage.set(window.sessionStorage, CONFIG.storage.sessionId, id);
+
+        return {
+            data: { id },
+            error: null
+        };
+    }
+
+    async function apiSendAnalytics(events) {
+        if (!supabaseClient || !Array.isArray(events) || !events.length) return;
+
+        const cleanEvents = events
+            .filter((event) => event && event.sessao_id && event.tipo)
+            .map((event) => ({
+                sessao_id: event.sessao_id,
+                tipo: event.tipo,
+                pagina: event.pagina || null,
+                criado_em: event.criado_em || new Date().toISOString(),
+                metadata: event.metadata && typeof event.metadata === "object"
+                    ? event.metadata
+                    : {}
+            }));
+
+        if (!cleanEvents.length) return;
+
+        const { error } = await withTimeout(
+            supabaseClient
+                .from(CONFIG.backend.analyticsTable)
+                .insert(cleanEvents)
+        );
+
+        if (error) throw error;
+    }
+
+    /* ============================================================
+       05. TEMA
+    ============================================================ */
+
+    function initTheme() {
+        const body = document.body;
+        const button = $("#toggle-tema");
+        const label = $("[data-theme-label]", button || document);
+        const icon = $("span[aria-hidden]", button || document);
+        const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+
+        if (!body) return;
+
+        const getInitialTheme = () => {
+            const stored = safeStorage.get(window.localStorage, CONFIG.storage.theme);
+            if (stored === "dark" || stored === "light") return stored;
+            return media?.matches ? "dark" : "light";
+        };
+
+        const applyTheme = (theme, persist = true) => {
+            const normalized = theme === "dark" ? "dark" : "light";
+            const isDark = normalized === "dark";
+
+            state.theme = normalized;
+            body.dataset.theme = normalized;
+
+            button?.setAttribute("aria-pressed", String(isDark));
+            button?.setAttribute(
+                "aria-label",
+                isDark ? "Ativar modo claro" : "Ativar modo escuro"
+            );
+
+            announce(label, isDark ? "Modo claro" : "Modo escuro");
+            announce(icon, isDark ? "☀" : "☾");
+
+            if (persist) {
+                safeStorage.set(window.localStorage, CONFIG.storage.theme, normalized);
+            }
+
+            const themeMeta = $('meta[name="theme-color"]');
+            themeMeta?.setAttribute("content", isDark ? "#0A100D" : "#01260A");
+        };
+
+        applyTheme(getInitialTheme(), false);
+
+        button?.addEventListener("click", () => {
+            applyTheme(state.theme === "dark" ? "light" : "dark", true);
+        });
+
+        media?.addEventListener?.("change", (event) => {
+            if (!safeStorage.get(window.localStorage, CONFIG.storage.theme)) {
+                applyTheme(event.matches ? "dark" : "light", false);
+            }
+        });
+    }
+
+    /* ============================================================
+       06. NAVEGAÇÃO
+    ============================================================ */
+
+    function initNavigation() {
+        const menuButton = $("#menu-toggle");
+        const menu = $("#menu-principal");
+        const explore = $(".nav-explore");
+
+        const setMenu = (open) => {
+            const shouldOpen = Boolean(open);
+
+            state.mobileMenu.open = shouldOpen;
+            setHidden(menu, !shouldOpen);
+            menuButton?.setAttribute("aria-expanded", String(shouldOpen));
+            menuButton?.setAttribute(
+                "aria-label",
+                shouldOpen ? "Fechar menu" : "Abrir menu"
+            );
+
+            const icon = $("span[aria-hidden]", menuButton || document);
+            announce(icon, shouldOpen ? "×" : "☰");
+            document.body.classList.toggle("menu-aberto", shouldOpen);
+        };
+
+        menuButton?.addEventListener("click", () => {
+            setMenu(!state.mobileMenu.open);
+        });
+
+        $$('a[href^="#"]', menu || document).forEach((link) => {
+            link.addEventListener("click", () => setMenu(false));
+        });
+
+        $$(".nav-explore-panel a", explore || document).forEach((link) => {
+            link.addEventListener("click", () => {
+                if (explore) explore.open = false;
+            });
+        });
+
+        document.addEventListener("click", (event) => {
+            const target = event.target;
+
+            if (state.mobileMenu.open && menu && menuButton) {
+                const clickedOutside = !menu.contains(target) && !menuButton.contains(target);
+                if (clickedOutside) setMenu(false);
+            }
+
+            if (explore?.open && !explore.contains(target)) {
+                explore.open = false;
+            }
+        });
+
+        document.addEventListener("keydown", (event) => {
+            if (event.key !== "Escape") return;
+            setMenu(false);
+            if (explore) explore.open = false;
+        });
+
+        initActiveSection();
+    }
+
+    function initActiveSection() {
+        const sections = $$('main > section[id]');
+        const directLinks = $$('nav a[href^="#"]');
+
+        if (!sections.length || !directLinks.length || !("IntersectionObserver" in window)) {
+            return;
+        }
+
+        const update = (id) => {
+            directLinks.forEach((link) => {
+                if (link.closest(".nav-explore-panel")) return;
+
+                const active = link.getAttribute("href") === `#${id}`;
+                if (active) {
+                    link.setAttribute("aria-current", "location");
+                } else {
+                    link.removeAttribute("aria-current");
+                }
+            });
+        };
+
         const observer = new IntersectionObserver((entries) => {
             const visible = entries
                 .filter((entry) => entry.isIntersecting)
                 .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
 
-            if (!visible) return;
-
-            const currentId = visible.target.id;
-            navSectionLinks.forEach((link) => {
-                if (link.closest(".nav-dropdown")) return;
-                const active = link.getAttribute("href") === `#${currentId}`;
-                if (active) link.setAttribute("aria-current", "location");
-                else link.removeAttribute("aria-current");
-            });
+            if (visible?.target?.id) update(visible.target.id);
         }, {
             rootMargin: "-28% 0px -62% 0px",
-            threshold: [0, 0.15, 0.35, 0.55]
+            threshold: [0.05, 0.15, 0.3, 0.5]
         });
 
-        mainSections.forEach((section) => observer.observe(section));
+        sections.forEach((section) => observer.observe(section));
     }
 
-    /* =========================================================
-       05. CARROSSEL — AUTOPLAY + SETAS + PAUSA
-    ========================================================== */
+    /* ============================================================
+       07. CARROSSEL
+    ============================================================ */
 
-    const journey = $("#carrossel");
-    if (journey) {
-        const slides = $$(".jornada-slide", journey);
-        const previousButton = $(".carrossel-anterior", journey);
-        const nextButton = $(".carrossel-proxima", journey);
-        const pauseButton = $(".carrossel-pausa", journey);
-        const progress = $(".carrossel-progresso", journey);
-        const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-        const duration = 8000;
-        let current = Math.max(0, slides.findIndex(slide => slide.classList.contains("is-active")));
-        let timer = null;
-        let progressTimer = null;
-        let paused = false;
-        let touchStartX = null;
+    function initCarousel() {
+        const root = $("[data-carousel='root']");
+        if (!root) return;
 
-        const stop = () => {
-            clearTimeout(timer);
-            clearInterval(progressTimer);
+        const slides = $$('[data-carousel-slide]', root);
+        const previous = $("[data-carousel-prev]", root);
+        const next = $("[data-carousel-next]", root);
+        const progress = $("[data-carousel-progress]", root);
+        const progressFill = $("[data-carousel-progress-fill]", root);
+        const pauseControl = $("[data-carousel-pause]", root);
+        const duration = Math.max(1000, toNumber(root.dataset.autoplay, 8000));
+
+        if (slides.length < 1) return;
+
+        state.carousel.duration = duration;
+
+        const initialIndex = slides.findIndex((slide) => slide.classList.contains("is-active"));
+        state.carousel.index = initialIndex >= 0 ? initialIndex : 0;
+
+        const stopTimers = () => {
+            if (state.carousel.timer !== null) {
+                window.clearTimeout(state.carousel.timer);
+                state.carousel.timer = null;
+            }
+
+            if (state.carousel.progressTimer !== null) {
+                window.clearInterval(state.carousel.progressTimer);
+                state.carousel.progressTimer = null;
+            }
         };
-        const resetProgress = () => progress?.style.setProperty("--progresso", "0%");
 
-        const render = (index) => {
-            if (!slides.length) return;
-            current = (index + slides.length) % slides.length;
-            slides.forEach((slide, i) => {
-                const active = i === current;
+        const updateProgress = (percent) => {
+            const value = clamp(percent, 0, 100);
+            if (progressFill) {
+                progressFill.style.width = `${value}%`;
+            }
+            if (progress) {
+                progress.setAttribute("aria-valuenow", String(Math.round(value)));
+            }
+        };
+
+        const updatePauseButton = () => {
+            if (!pauseControl) return;
+
+            const paused = Boolean(state.carousel.paused);
+            pauseControl.setAttribute("aria-pressed", String(paused));
+            pauseControl.setAttribute(
+                "aria-label",
+                paused ? "Retomar carrossel" : "Pausar carrossel"
+            );
+            pauseControl.textContent = paused ? "Retomar" : "Pausar";
+        };
+
+        const updateSlides = () => {
+            slides.forEach((slide, index) => {
+                const active = index === state.carousel.index;
                 slide.classList.toggle("is-active", active);
                 slide.hidden = !active;
                 slide.setAttribute("aria-hidden", String(!active));
             });
-            resetProgress();
+        };
+
+        const canAutoplay = () => {
+            return slides.length > 1
+                && !state.carousel.paused
+                && !state.carousel.hoverPaused
+                && !state.carousel.focusPaused
+                && !document.hidden
+                && !prefersReducedMotion();
         };
 
         const start = () => {
-            stop();
-            if (slides.length < 2 || paused || document.hidden || reducedMotion?.matches) return;
-            const started = performance.now();
-            progressTimer = setInterval(() => {
-                progress?.style.setProperty("--progresso", `${Math.min(((performance.now()-started)/duration)*100,100)}%`);
-            }, 80);
-            timer = setTimeout(() => { render(current + 1); start(); }, duration);
+            stopTimers();
+            updatePauseButton();
+            updateProgress(0);
+
+            if (!canAutoplay()) return;
+
+            state.carousel.progressStartedAt = performance.now();
+
+            state.carousel.progressTimer = window.setInterval(() => {
+                const elapsed = performance.now() - state.carousel.progressStartedAt;
+                updateProgress((elapsed / duration) * 100);
+            }, 40);
+
+            state.carousel.timer = window.setTimeout(() => {
+                goTo(state.carousel.index + 1, false);
+                start();
+            }, duration);
         };
 
-        const go = (offset) => { render(current + offset); if (!paused) start(); };
-        const setPaused = value => {
-            paused = Boolean(value);
-            stop();
-            if (pauseButton) {
-                pauseButton.textContent = paused ? "Continuar" : "Pausar";
-                pauseButton.setAttribute("aria-label", paused ? "Continuar carrossel" : "Pausar carrossel");
+        const goTo = (index, restart = true) => {
+            state.carousel.index = (index + slides.length) % slides.length;
+            updateSlides();
+            updateProgress(0);
+
+            if (restart) start();
+        };
+
+        previous?.addEventListener("click", () => goTo(state.carousel.index - 1));
+        next?.addEventListener("click", () => goTo(state.carousel.index + 1));
+
+        pauseControl?.addEventListener("click", () => {
+            state.carousel.paused = !state.carousel.paused;
+            if (state.carousel.paused) {
+                stopTimers();
             }
-            if (!paused) start();
-        };
-
-        previousButton?.addEventListener("click", () => go(-1));
-        nextButton?.addEventListener("click", () => go(1));
-        pauseButton?.addEventListener("click", () => setPaused(!paused));
-
-        journey.addEventListener("pointerdown", event => { touchStartX = event.clientX; });
-        journey.addEventListener("pointerup", event => {
-            if (touchStartX == null) return;
-            const dx = event.clientX - touchStartX;
-            touchStartX = null;
-            if (Math.abs(dx) > 44) go(dx < 0 ? 1 : -1);
+            start();
         });
 
-        document.addEventListener("visibilitychange", () => { if (document.hidden) stop(); else start(); });
-        reducedMotion?.addEventListener?.("change", () => start());
+        root.addEventListener("pointerdown", (event) => {
+            state.carousel.touchStartX = event.clientX;
+        }, { passive: true });
 
-        render(current);
+        root.addEventListener("pointerup", (event) => {
+            if (state.carousel.touchStartX === null) return;
+
+            const distance = event.clientX - state.carousel.touchStartX;
+            state.carousel.touchStartX = null;
+
+            if (Math.abs(distance) < CONFIG.limits.carouselSwipeThreshold) return;
+            goTo(state.carousel.index + (distance < 0 ? 1 : -1));
+        }, { passive: true });
+
+        root.addEventListener("pointercancel", () => {
+            state.carousel.touchStartX = null;
+        }, { passive: true });
+
+        root.addEventListener("mouseenter", () => {
+            state.carousel.hoverPaused = true;
+            stopTimers();
+        });
+
+        root.addEventListener("mouseleave", () => {
+            state.carousel.hoverPaused = false;
+            start();
+        });
+
+        root.addEventListener("focusin", () => {
+            state.carousel.focusPaused = true;
+            stopTimers();
+        });
+
+        root.addEventListener("focusout", (event) => {
+            if (root.contains(event.relatedTarget)) return;
+            state.carousel.focusPaused = false;
+            start();
+        });
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) stopTimers();
+            else start();
+        });
+
+        const motionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+        motionQuery?.addEventListener?.("change", () => start());
+
+        updateSlides();
+        updatePauseButton();
         start();
     }
 
-    /* =========================================================
-       06. COMO FUNCIONA — FLUXO ESTÁTICO
-       O diagrama é apenas informativo; não requer interação.
-    ========================================================== */
+    /* ============================================================
+       08. SISTEMAS
+    ============================================================ */
 
-    /* =========================================================
-       07. SIMULADOR DE DESEMPENHO
-       Simulação didática. Não é dimensionamento real.
-    ========================================================== */
+    function initSystems() {
+        const root = $("#sistemas");
+        const tabs = $$('[data-system-tab]', root || document);
+        const panels = $$('[data-system-panel]', root || document);
 
-    const simulator = $("#simulador-geracao");
+        if (!tabs.length || !panels.length) return;
 
-    if (simulator) {
-        const area = simulator.closest(".simulacao-geracao");
+        const select = (name, focus = false) => {
+            tabs.forEach((tab) => {
+                const active = tab.dataset.systemTab === name;
 
-        const fields = {
-            irradiacao: $("#irradiacao"),
-            temperatura: $("#temperatura"),
-            sombreamento: $("#sombreamento"),
-            orientacao: $("#orientacao"),
-            sujeira: $("#sujeira"),
-            eficiencia: $("#eficiencia")
-        };
-
-        const outputs = {
-            irradiacao: $("#valor-irradiacao"),
-            temperatura: $("#valor-temperatura"),
-            sombreamento: $("#valor-sombreamento"),
-            orientacao: $("#valor-orientacao"),
-            sujeira: $("#valor-sujeira"),
-            eficiencia: $("#valor-eficiencia"),
-            potencia: $("[data-result='potencia']", area || document),
-            energia: $("[data-result='energia']", area || document),
-            desempenho: $("[data-result='desempenho']", area || document),
-            chart: $("[data-chart='desempenho']", area || document)
-        };
-
-        const presets = {
-            ideal: {
-                irradiacao: 100,
-                temperatura: 38,
-                sombreamento: 0,
-                orientacao: 100,
-                sujeira: 0,
-                eficiencia: 100
-            },
-            normal: {
-                irradiacao: 80,
-                temperatura: 50,
-                sombreamento: 10,
-                orientacao: 80,
-                sujeira: 10,
-                eficiencia: 80
-            },
-            sombreado: {
-                irradiacao: 75,
-                temperatura: 58,
-                sombreamento: 45,
-                orientacao: 68,
-                sujeira: 18,
-                eficiencia: 78
-            }
-        };
-
-        const valueOf = (field) => safeNumber(field?.value, 0);
-
-        const updateSimulator = () => {
-            const irradiacao = valueOf(fields.irradiacao) / 100;
-            const temperaturaSlider = valueOf(fields.temperatura);
-            const sombreamento = valueOf(fields.sombreamento) / 100;
-            const orientacao = valueOf(fields.orientacao) / 100;
-            const sujeira = valueOf(fields.sujeira) / 100;
-            const eficiencia = valueOf(fields.eficiencia) / 100;
-            const temperatura = 10 + temperaturaSlider * 0.4;
-
-            const fatorTemperatura = Math.max(
-                0,
-                1 - Math.max(0, temperatura - 25) * 0.004
-            );
-            const fatorSombra = 1 - sombreamento;
-            const fatorOrientacao = 0.55 + orientacao * 0.45;
-            const fatorSujeira = 1 - sujeira * 0.5;
-
-            const fatorTotal =
-                irradiacao *
-                fatorTemperatura *
-                fatorSombra *
-                fatorOrientacao *
-                fatorSujeira *
-                eficiencia;
-
-            const potencia = 5 * fatorTotal;
-            const energia = potencia * 5.5;
-            const desempenho = clamp(fatorTotal * 100, 0, 100);
-
-            if (outputs.irradiacao) outputs.irradiacao.textContent = `${Math.round(valueOf(fields.irradiacao))}%`;
-            if (outputs.temperatura) outputs.temperatura.textContent = `${temperatura.toFixed(0)} °C`;
-            if (outputs.sombreamento) outputs.sombreamento.textContent = `${Math.round(valueOf(fields.sombreamento))}%`;
-            if (outputs.orientacao) outputs.orientacao.textContent = `${Math.round(valueOf(fields.orientacao))}%`;
-            if (outputs.sujeira) outputs.sujeira.textContent = `${Math.round(valueOf(fields.sujeira))}%`;
-            if (outputs.eficiencia) outputs.eficiencia.textContent = `${Math.round(valueOf(fields.eficiencia))}%`;
-
-            if (outputs.potencia) outputs.potencia.textContent = `${potencia.toFixed(2)} kW`;
-            if (outputs.energia) outputs.energia.textContent = `${energia.toFixed(2)} kWh`;
-            if (outputs.desempenho) outputs.desempenho.textContent = `${desempenho.toFixed(0)}%`;
-
-
-            return { potencia, energia, desempenho };
-        };
-
-        const applyPreset = (name) => {
-            const preset = presets[name];
-            if (!preset) return;
-
-            Object.entries(preset).forEach(([fieldName, value]) => {
-                if (fields[fieldName]) fields[fieldName].value = String(value);
-            });
-
-            $$('[data-cenario]', area).forEach((button) => {
-                button.classList.toggle("is-active", button.dataset.cenario === name);
-                button.setAttribute("aria-pressed", String(button.dataset.cenario === name));
-            });
-
-            updateSimulator();
-        };
-
-        Object.values(fields).forEach((field) => {
-            field?.addEventListener("input", () => {
-                $$('[data-cenario]', area).forEach((button) => button.classList.remove("is-active"));
-                updateSimulator();
-            });
-        });
-
-        $$('[data-cenario]', area).forEach((button) => {
-            button.addEventListener("click", () => applyPreset(button.dataset.cenario));
-        });
-
-        applyPreset("normal");
-    }
-
-    /* =========================================================
-       08. SISTEMAS — ON-GRID / OFF-GRID / HÍBRIDO
-    ========================================================== */
-
-    const systemTabs = $$('[data-sistema-tab]');
-    const systemPanels = $$('[data-sistema-panel]');
-
-    if (systemTabs.length && systemPanels.length) {
-        const changeSystem = (systemName, focus = false) => {
-            systemTabs.forEach((tab) => {
-                const active = tab.dataset.sistemaTab === systemName;
                 tab.classList.toggle("is-active", active);
                 tab.setAttribute("aria-selected", String(active));
                 tab.setAttribute("tabindex", active ? "0" : "-1");
-                if (focus && active) tab.focus();
+
+                if (active && focus) tab.focus();
             });
 
-            systemPanels.forEach((panel) => {
-                const active = panel.dataset.sistemaPanel === systemName;
+            panels.forEach((panel) => {
+                const active = panel.dataset.systemPanel === name;
+
                 panel.classList.toggle("is-active", active);
                 panel.hidden = !active;
                 panel.setAttribute("aria-hidden", String(!active));
             });
         };
 
-        systemTabs.forEach((tab, index) => {
-            tab.addEventListener("click", () => changeSystem(tab.dataset.sistemaTab));
+        tabs.forEach((tab, index) => {
+            tab.addEventListener("click", () => {
+                select(tab.dataset.systemTab);
+            });
 
             tab.addEventListener("keydown", (event) => {
                 if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
                 event.preventDefault();
 
                 let nextIndex = index;
-                if (event.key === "ArrowRight") nextIndex = (index + 1) % systemTabs.length;
-                if (event.key === "ArrowLeft") nextIndex = (index - 1 + systemTabs.length) % systemTabs.length;
+                if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+                if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
                 if (event.key === "Home") nextIndex = 0;
-                if (event.key === "End") nextIndex = systemTabs.length - 1;
+                if (event.key === "End") nextIndex = tabs.length - 1;
 
-                changeSystem(systemTabs[nextIndex].dataset.sistemaTab, true);
+                select(tabs[nextIndex].dataset.systemTab, true);
             });
         });
 
-        const initial = systemTabs.find((tab) => tab.classList.contains("is-active")) || systemTabs[0];
-        changeSystem(initial.dataset.sistemaTab);
+        const initial = tabs.find((tab) => tab.classList.contains("is-active")) || tabs[0];
+        select(initial.dataset.systemTab);
     }
 
-    /* =========================================================
-       09. SUSTENTABILIDADE — PROCESSO ESTÁTICO
-    ========================================================== */
+    /* ============================================================
+       09. SIMULADOR
+    ============================================================ */
 
-    /* =========================================================
-       10. FORMULÁRIO — VALIDAÇÃO + SUPABASE
-    ========================================================== */
+    function initSimulator() {
+        const root = $(`[data-simulator-root]`);
+        const form = $("#simulador-geracao", root || document);
 
-    const form = $("#form-contato");
-    const phone = $("#telefone");
-    const formMessage = $("#mensagem-formulario");
+        if (!root || !form) return;
 
-    const showFormMessage = (message, type = "info") => {
-        if (!formMessage) return;
-        formMessage.textContent = message;
-        formMessage.dataset.tipo = type;
-    };
-
-    const formatPhone = (value) => {
-        const digits = value.replace(/\D/g, "").slice(0, 11);
-        if (!digits) return "";
-        if (digits.length <= 2) return `(${digits}`;
-        if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-        if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-        return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-    };
-
-    const collectInterests = () =>
-        $$('input[name="interesses[]"]:checked', form).map((input) => input.value);
-
-    phone?.addEventListener("input", () => {
-        phone.value = formatPhone(phone.value);
-    });
-
-    form?.addEventListener("input", () => {
-        if (formMessage?.textContent) showFormMessage("");
-    });
-
-    const callContactRpc = async (payload) => {
-        if (!clienteSupabase) {
-            throw new Error("Supabase indisponível.");
-        }
-
-        if (preferenciaRpcV6 !== false) {
-            const v6 = await clienteSupabase.rpc(BACKEND.formRpcV6, payload);
-            if (!v6.error) {
-                preferenciaRpcV6 = true;
-                return v6;
-            }
-
-            const missingV6 = /function|does not exist|schema cache|not found/i.test(v6.error.message || "");
-            if (!missingV6) return v6;
-
-            console.warn("RPC V6 ainda não encontrada. Usando a RPC atual do formulário.");
-            preferenciaRpcV6 = false;
-        }
-
-        const legacyPayload = {
-            p_nome: payload.p_nome,
-            p_email: payload.p_email,
-            p_telefone: payload.p_telefone,
-            p_empresa: payload.p_empresa,
-            p_assunto: payload.p_assunto,
-            p_mensagem: payload.p_mensagem
+        const fields = {
+            irradiacao: $("#irradiacao", form),
+            temperatura: $("#temperatura", form),
+            sombreamento: $("#sombreamento", form),
+            orientacao: $("#orientacao", form),
+            sujeira: $("#sujeira", form),
+            eficiencia: $("#eficiencia", form)
         };
 
-        return clienteSupabase.rpc(BACKEND.formRpcLegacy, legacyPayload);
-    };
-
-    form?.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        showFormMessage("");
-
-        const requiredFields = $$('[required]', form);
-        const invalid = requiredFields.find((field) => !field.checkValidity());
-
-        if (invalid) {
-            invalid.reportValidity();
-            showFormMessage("Revise os campos obrigatórios antes de enviar.", "erro");
-            invalid.focus();
-            return;
-        }
-
-        const payload = {
-            p_nome: $("#nome", form)?.value.trim() || "",
-            p_email: $("#email", form)?.value.trim() || "",
-            p_telefone: $("#telefone", form)?.value.trim() || "",
-            p_perfil: $("#perfil", form)?.value || null,
-            p_empresa: $("#empresa", form)?.value.trim() || "",
-            p_assunto: $("#assunto", form)?.value || "",
-            p_interesses: collectInterests(),
-            p_mensagem: $("#mensagem", form)?.value.trim() || ""
+        const outputs = {
+            irradiacao: $("#valor-irradiacao", root),
+            temperatura: $("#valor-temperatura", root),
+            sombreamento: $("#valor-sombreamento", root),
+            orientacao: $("#valor-orientacao", root),
+            sujeira: $("#valor-sujeira", root),
+            eficiencia: $("#valor-eficiencia", root),
+            potencia: $("[data-result='potencia']", root),
+            energia: $("[data-result='energia']", root),
+            desempenho: $("[data-result='desempenho']", root)
         };
 
-        if (payload.p_mensagem.length < 10) {
-            showFormMessage("Escreva uma mensagem com pelo menos 10 caracteres.", "erro");
-            $("#mensagem", form)?.focus();
-            return;
-        }
+        const presets = Object.freeze({
+            ideal: Object.freeze({
+                irradiacao: 100,
+                temperatura: 38,
+                sombreamento: 0,
+                orientacao: 100,
+                sujeira: 0,
+                eficiencia: 100
+            }),
 
-        if (!clienteSupabase) {
-            showFormMessage("Não foi possível conectar ao banco de dados. Tente novamente.", "erro");
-            return;
-        }
+            normal: Object.freeze({
+                irradiacao: 80,
+                temperatura: 50,
+                sombreamento: 10,
+                orientacao: 80,
+                sujeira: 10,
+                eficiencia: 80
+            }),
 
-        const button = form.querySelector("button[type='submit']");
-        if (button) {
-            button.disabled = true;
-            button.dataset.originalText = button.textContent;
-            button.textContent = "Enviando...";
-        }
+            sombreado: Object.freeze({
+                irradiacao: 75,
+                temperatura: 58,
+                sombreamento: 45,
+                orientacao: 68,
+                sujeira: 18,
+                eficiencia: 78
+            })
+        });
 
-        try {
-            const { error } = await callContactRpc(payload);
+        const updatePresetState = (activeName = null) => {
+            $$('[data-scenario]', root).forEach((button) => {
+                const active = activeName !== null && button.dataset.scenario === activeName;
+                button.classList.toggle("is-active", active);
+                button.setAttribute("aria-pressed", String(active));
+            });
+        };
 
-            if (error) {
-                console.error("Erro ao enviar mensagem:", error);
-                showFormMessage("Não foi possível enviar sua mensagem. Tente novamente.", "erro");
-                return;
+        const calculate = () => {
+            const irradiacao = toNumber(fields.irradiacao?.value) / 100;
+            const temperaturaSlider = toNumber(fields.temperatura?.value);
+            const sombreamento = toNumber(fields.sombreamento?.value) / 100;
+            const orientacao = toNumber(fields.orientacao?.value) / 100;
+            const sujeira = toNumber(fields.sujeira?.value) / 100;
+            const eficiencia = toNumber(fields.eficiencia?.value) / 100;
+
+            /*
+             * Modelo didático baseado no simulador anterior:
+             * - sistema de referência de 5 kW;
+             * - fator diário fixo de 5,5 h equivalentes;
+             * - temperatura convertida de 0–100 para 10–50 °C;
+             * - perdas simplificadas por sombra, orientação e sujeira.
+             */
+            const temperatura = 10 + temperaturaSlider * 0.4;
+            const temperaturaFactor = Math.max(
+                0,
+                1 - Math.max(0, temperatura - 25) * 0.004
+            );
+            const sombraFactor = 1 - sombreamento;
+            const orientacaoFactor = 0.55 + orientacao * 0.45;
+            const sujeiraFactor = 1 - sujeira * 0.5;
+
+            const performance = clamp(
+                irradiacao
+                * temperaturaFactor
+                * sombraFactor
+                * orientacaoFactor
+                * sujeiraFactor
+                * eficiencia,
+                0,
+                1
+            );
+
+            const potencia = 5 * performance;
+            const energia = potencia * 5.5;
+            const desempenho = performance * 100;
+
+            announce(outputs.irradiacao, `${Math.round(toNumber(fields.irradiacao?.value))}%`);
+            announce(outputs.temperatura, `${Math.round(temperatura)} °C`);
+            announce(outputs.sombreamento, `${Math.round(toNumber(fields.sombreamento?.value))}%`);
+            announce(outputs.orientacao, `${Math.round(toNumber(fields.orientacao?.value))}%`);
+            announce(outputs.sujeira, `${Math.round(toNumber(fields.sujeira?.value))}%`);
+            announce(outputs.eficiencia, `${Math.round(toNumber(fields.eficiencia?.value))}%`);
+            announce(outputs.potencia, `${potencia.toFixed(2)} kW`);
+            announce(outputs.energia, `${energia.toFixed(2)} kWh`);
+            announce(outputs.desempenho, `${desempenho.toFixed(0)}%`);
+
+            state.simulator.lastResult = {
+                potencia,
+                energia,
+                desempenho
+            };
+
+            return state.simulator.lastResult;
+        };
+
+        const applyPreset = (name, track = false) => {
+            const preset = presets[name];
+            if (!preset) return null;
+
+            Object.entries(preset).forEach(([field, value]) => {
+                if (fields[field]) fields[field].value = String(value);
+            });
+
+            updatePresetState(name);
+            const result = calculate();
+
+            if (track) {
+                analyticsTrack("simulador_usado", {
+                    cenario: name,
+                    desempenho: Number(result.desempenho.toFixed(2))
+                });
             }
 
-            form.reset();
-            showFormMessage("Mensagem enviada com sucesso! Obrigado pelo contato.", "sucesso");
-        } catch (error) {
-            console.error("Erro de conexão com o Supabase:", error);
-            showFormMessage("Não foi possível enviar sua mensagem. Tente novamente.", "erro");
-        } finally {
-            if (button) {
-                button.disabled = false;
-                button.textContent = button.dataset.originalText || "Enviar mensagem";
-            }
-        }
-    });
+            return result;
+        };
 
-    /* =========================================================
-       11. SUPABASE — DADOS DO BRASIL
+        Object.values(fields).forEach((field) => {
+            field?.addEventListener("input", () => {
+                updatePresetState(null);
+                calculate();
+            });
+        });
 
-       O site continua funcionando com os dados de referência
-       presentes no HTML caso o banco esteja vazio ou indisponível.
-    ========================================================== */
+        $$('[data-scenario]', root).forEach((button) => {
+            button.addEventListener("click", () => {
+                applyPreset(button.dataset.scenario, true);
+            });
+        });
 
-    const brasilFallback = [
+        applyPreset("normal", false);
+    }
+
+    /* ============================================================
+       10. DADOS DO BRASIL
+    ============================================================ */
+
+    const BRASIL_FALLBACK = Object.freeze([
         {
             ano: 2025,
-            capacidade_gw: 64.8,
+            capacidade_gw: 64.793,
             geracao_twh: 88.1,
-            participacao: 11.4,
-            fonte_id: null,
-            fonte: {
-                instituicao: "EPE",
-                titulo: "Balanço Energético Nacional",
-                ano: 2026,
-                url: "https://www.epe.gov.br/"
-            }
+            participacao_percentual: 11.4,
+            fonte_instituicao: "EPE",
+            fonte_titulo: "Balanço Energético Nacional 2026",
+            fonte_ano: 2026,
+            fonte_url: "https://www.epe.gov.br/"
+        },
+        {
+            ano: 2024,
+            capacidade_gw: 48.468,
+            geracao_twh: 70.7,
+            participacao_percentual: 9.4,
+            fonte_instituicao: "EPE",
+            fonte_titulo: "Balanço Energético Nacional 2026",
+            fonte_ano: 2026,
+            fonte_url: "https://www.epe.gov.br/"
+        },
+        {
+            ano: 2023,
+            capacidade_gw: 37.843,
+            geracao_twh: 50.633,
+            participacao_percentual: 7,
+            fonte_instituicao: "EPE",
+            fonte_titulo: "Balanço Energético Nacional 2024",
+            fonte_ano: 2024,
+            fonte_url: "https://www.epe.gov.br/"
+        },
+        {
+            ano: 2022,
+            capacidade_gw: 24.453,
+            geracao_twh: 30.127,
+            participacao_percentual: 4.4,
+            fonte_instituicao: "EPE",
+            fonte_titulo: "Balanço Energético Nacional 2023",
+            fonte_ano: 2023,
+            fonte_url: "https://www.epe.gov.br/"
+        },
+        {
+            ano: 2021,
+            capacidade_gw: 13.404,
+            geracao_twh: 16.752,
+            participacao_percentual: 2.6,
+            fonte_instituicao: "EPE",
+            fonte_titulo: "Anuário Estatístico 2024",
+            fonte_ano: 2024,
+            fonte_url: "https://www.epe.gov.br/"
         }
-    ];
+    ]);
 
-    const brasilState = {
-        dados: [],
-        fontes: [],
-        metrica: "capacidade"
-    };
-
-    const metricConfig = {
-        capacidade: {
+    const BRASIL_METRICS = Object.freeze({
+        capacidade: Object.freeze({
             key: "capacidade_gw",
             label: "Capacidade solar instalada",
             unit: "GW",
             digits: 1
-        },
-        geracao: {
+        }),
+        geracao: Object.freeze({
             key: "geracao_twh",
             label: "Geração solar",
             unit: "TWh",
             digits: 1
-        },
-        participacao: {
-            key: "participacao",
+        }),
+        participacao: Object.freeze({
+            key: "participacao_percentual",
             label: "Participação na geração elétrica",
             unit: "%",
             digits: 1
-        }
-    };
+        })
+    });
 
-    const normalizeBrasilRow = (row) => {
-        const participacao = row.participacao ?? row.participacao_percentual;
+    function normalizeBrazilRow(row) {
+        const source = Array.isArray(row?.fonte)
+            ? row.fonte[0] || {}
+            : (row?.fonte || {});
 
         return {
-            ...row,
-            ano: safeNumber(row.ano, NaN),
-            capacidade_gw: safeNumber(row.capacidade_gw, NaN),
-            geracao_twh: safeNumber(row.geracao_twh, NaN),
-            participacao: safeNumber(participacao, NaN)
+            ano: toNumber(row?.ano, NaN),
+            capacidade_gw: toNumber(row?.capacidade_gw, NaN),
+            geracao_twh: toNumber(row?.geracao_twh, NaN),
+            participacao_percentual: toNumber(
+                row?.participacao_percentual ?? row?.participacao,
+                NaN
+            ),
+            fonte_id: row?.fonte_id ?? null,
+            fonte_instituicao: String(
+                row?.fonte_instituicao ?? source?.instituicao ?? ""
+            ).trim(),
+            fonte_titulo: String(
+                row?.fonte_titulo ?? source?.titulo ?? ""
+            ).trim(),
+            fonte_ano: toNumber(
+                row?.fonte_ano ?? source?.ano,
+                NaN
+            ),
+            fonte_url: String(
+                row?.fonte_url ?? source?.url ?? ""
+            ).trim()
         };
-    };
+    }
 
-    const getLatestBrasilRow = () =>
-        [...brasilState.dados]
+    function getLatestBrazil() {
+        return [...state.brasil.data]
             .filter((row) => Number.isFinite(row.ano))
             .sort((a, b) => b.ano - a.ano)[0] || null;
+    }
 
-    const getSourceForRow = (row) => {
-        if (!row) return null;
+    function updateBrazilHighlights() {
+        const root = $("[data-brazil-root]");
+        const latest = getLatestBrazil();
 
-        if (row.fonte && typeof row.fonte === "object") return row.fonte;
+        if (!root || !latest) return;
 
-        if (row.fonte_instituicao || row.fonte_titulo || row.fonte_url) {
-            return {
-                instituicao: row.fonte_instituicao || "Fonte registrada no banco",
-                titulo: row.fonte_titulo || "",
-                ano: row.fonte_ano || null,
-                url: row.fonte_url || null
-            };
-        }
-
-        return null;
-    };
-
-    const formatBrasilMetric = (value, config) =>
-        `${formatPtNumber(value, config.digits)} ${config.unit}`;
-
-    const updateBrasilHighlights = () => {
-        const latest = getLatestBrasilRow();
-        if (!latest) return;
-
-        const mappings = [
-            ["capacidade_gw", latest.capacidade_gw, "GW"],
-            ["geracao_twh", latest.geracao_twh, "TWh"],
-            ["participacao", latest.participacao, "%"]
+        const definitions = [
+            ["capacidade_gw", latest.capacidade_gw, "GW", "capacidade solar instalada"],
+            ["geracao_twh", latest.geracao_twh, "TWh", "geração solar"],
+            ["participacao", latest.participacao_percentual, "%", "participação na geração elétrica"]
         ];
 
-        mappings.forEach(([key, value, unit]) => {
-            const output = document.querySelector(`[data-valor-brasil="${key}"]`);
-            const card = document.querySelector(`[data-dado-brasil="${key}"]`);
-            if (!output || !Number.isFinite(value)) return;
+        definitions.forEach(([cardName, value, unit, label]) => {
+            const output = $(`[data-brazil-value="${cardName}"]`, root);
+            const year = $(`[data-brazil-year="${cardName}"]`, root);
 
-            output.textContent = `${formatPtNumber(value, 1)} ${unit}`;
-            const label = card?.querySelector("span");
-            if (label) label.textContent = `${label.textContent.replace(/—.*$/, "")}— ${latest.ano}`;
+            if (output && Number.isFinite(value)) {
+                output.textContent = `${formatNumber(value, 1)} ${unit}`;
+            }
+
+            if (year) {
+                year.textContent = `${label} — ${latest.ano}`;
+            }
         });
 
-        const source = getSourceForRow(latest);
-        const updateLabel = $("[data-brasil-atualizacao]");
-        const updateMeta = $("[data-brasil-atualizacao-meta]");
-        const sourceLink = $("[data-brasil-fonte-link]");
-        const sourceName = source?.instituicao || "Fonte registrada no banco";
-        const sourceYear = source?.ano ? ` • fonte ${source.ano}` : "";
+        const status = $("[data-brazil-status]", root);
+        const meta = $("[data-brazil-meta]", root);
+        const sourceLink = $("[data-brazil-source-link]", root);
 
-        if (updateLabel) {
-            updateLabel.textContent = `Dados até ${latest.ano}`;
+        const institution = latest.fonte_instituicao || "Fonte registrada no banco";
+        const sourceYear = Number.isFinite(latest.fonte_ano)
+            ? ` • fonte ${latest.fonte_ano}`
+            : "";
+
+        announce(
+            status,
+            state.brasil.usingFallback
+                ? `Dados de referência até ${latest.ano}`
+                : `Dados do banco até ${latest.ano}`
+        );
+
+        announce(
+            meta,
+            `Dados históricos • atualizado até ${latest.ano} • ${institution}${sourceYear}`
+        );
+
+        const sourceUrl = safeUrl(latest.fonte_url);
+        if (sourceLink) {
+            if (sourceUrl) {
+                sourceLink.href = sourceUrl;
+                sourceLink.target = "_blank";
+                sourceLink.rel = "noopener noreferrer";
+                sourceLink.textContent = `Fonte: ${institution}`;
+                sourceLink.removeAttribute("aria-disabled");
+            } else {
+                sourceLink.href = "#fontes-brasil";
+                sourceLink.removeAttribute("target");
+                sourceLink.removeAttribute("rel");
+                sourceLink.textContent = "Ver fonte";
+                sourceLink.setAttribute("aria-disabled", "true");
+            }
         }
+    }
 
-        if (updateMeta) {
-            updateMeta.textContent = `Dados históricos • atualizado até ${latest.ano} • ${sourceName}${sourceYear}`;
-        }
+    function updateBrazilMetricButtons(metricName) {
+        const root = $("[data-brazil-root]");
+        $$('[data-brazil-metric]', root || document).forEach((button) => {
+            const active = button.dataset.brazilMetric === metricName;
+            button.classList.toggle("is-active", active);
+            button.setAttribute("aria-pressed", String(active));
+        });
+    }
 
-        if (sourceLink && source?.url) {
-            sourceLink.href = source.url;
-            sourceLink.target = "_blank";
-            sourceLink.rel = "noopener noreferrer";
-            sourceLink.textContent = source.instituicao ? `Fonte: ${source.instituicao}` : "Ver fonte";
-        }
-    };
-
-    const renderBrasilChart = (metricName = brasilState.metrica) => {
+    function renderBrazilChart(metricName = state.brasil.metric) {
         const chart = $("#grafico-brasil");
-        const config = metricConfig[metricName] || metricConfig.capacidade;
         if (!chart) return;
 
-        brasilState.metrica = metricName;
+        const config = BRASIL_METRICS[metricName] || BRASIL_METRICS.capacidade;
+        state.brasil.metric = BRASIL_METRICS[metricName] ? metricName : "capacidade";
+        updateBrazilMetricButtons(state.brasil.metric);
 
-        $$('[data-brasil-metrica]').forEach((button) => {
-            const active = button.dataset.brasilMetrica === metricName;
-            button.classList.toggle("is-active", active);
-            button.setAttribute("aria-selected", String(active));
-            button.setAttribute("tabindex", active ? "0" : "-1");
-        });
-
-        const rows = [...brasilState.dados]
+        const rows = [...state.brasil.data]
             .filter((row) => Number.isFinite(row.ano) && Number.isFinite(row[config.key]))
             .sort((a, b) => a.ano - b.ano);
 
         if (!rows.length) {
-            chart.innerHTML = `<p class="grafico-placeholder">Ainda não há dados históricos disponíveis.</p>`;
+            chart.innerHTML = '<p class="chart-placeholder">Ainda não há dados históricos disponíveis.</p>';
+            chart.setAttribute("aria-label", "Ainda não há dados históricos disponíveis.");
             return;
         }
 
         const width = 900;
         const height = 360;
-        const left = 58;
+        const left = 62;
         const right = 24;
-        const top = 28;
+        const top = 30;
         const bottom = 54;
         const innerWidth = width - left - right;
         const innerHeight = height - top - bottom;
+
         const values = rows.map((row) => Number(row[config.key]));
-        const minValue = Math.min(...values);
-        const maxValue = Math.max(...values);
-        const range = Math.max(maxValue - minValue, maxValue * 0.08, 1);
-        const low = Math.max(0, minValue - range * 0.12);
-        const high = maxValue + range * 0.12;
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const range = Math.max(max - min, Math.abs(max) * 0.08, 1);
+        const low = Math.max(0, min - range * 0.12);
+        const high = max + range * 0.12;
+        const span = Math.max(high - low, 1);
 
-        const points = rows.map((row, index) => {
-            const x = left + (index / Math.max(rows.length - 1, 1)) * innerWidth;
-            const y = top + innerHeight - ((row[config.key] - low) / Math.max(high - low, 1)) * innerHeight;
-            return { x, y, value: row[config.key], ano: row.ano };
-        });
+        const points = rows.map((row, index) => ({
+            x: left + (index / Math.max(rows.length - 1, 1)) * innerWidth,
+            y: top + innerHeight - ((row[config.key] - low) / span) * innerHeight,
+            value: row[config.key],
+            year: row.ano
+        }));
 
-        const line = points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+        const line = points
+            .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+            .join(" ");
+
         const baseline = top + innerHeight;
-        const areaPath = `${left},${baseline} ${line} ${left + innerWidth},${baseline}`;
-
-        const gridValues = [0, 0.5, 1].map((ratio) => low + (high - low) * ratio);
-        const latest = rows[rows.length - 1];
+        const area = `${left},${baseline} ${line} ${left + innerWidth},${baseline}`;
+        const latest = rows.at(-1);
 
         chart.setAttribute(
             "aria-label",
-            `${config.label}. De ${rows[0].ano} até ${latest.ano}. Último valor: ${formatBrasilMetric(latest[config.key], config)}.`
+            `${config.label}, de ${rows[0].ano} a ${latest.ano}. Último valor: ${formatNumber(latest[config.key], config.digits)} ${config.unit}.`
         );
+        chart.setAttribute("aria-busy", "false");
+
+        const grid = [0, 0.5, 1].map((ratio) => {
+            const y = top + innerHeight - ratio * innerHeight;
+            const value = low + span * ratio;
+
+            return `
+                <line
+                    class="chart-grid"
+                    x1="${left}"
+                    y1="${y.toFixed(1)}"
+                    x2="${left + innerWidth}"
+                    y2="${y.toFixed(1)}"
+                ></line>
+                <text
+                    class="chart-axis-label"
+                    x="${left - 10}"
+                    y="${(y + 4).toFixed(1)}"
+                    text-anchor="end"
+                >${escapeHtml(formatNumber(value, config.digits))}</text>
+            `;
+        }).join("");
 
         chart.innerHTML = `
             <div class="grafico-titulo-dinamico">
-                <strong>${escapeSvgText(config.label)}</strong>
-                <span>${escapeSvgText(formatBrasilMetric(latest[config.key], config))} • ${escapeSvgText(latest.ano)}</span>
+                <strong>${escapeHtml(config.label)}</strong>
+                <span>${escapeHtml(formatNumber(latest[config.key], config.digits))} ${escapeHtml(config.unit)} • ${escapeHtml(latest.ano)}</span>
             </div>
-            <svg class="brasil-chart" viewBox="0 0 ${width} ${height}" role="img" aria-hidden="true">
-                <defs>
-                    <linearGradient id="brasilAreaGradient" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stop-color="currentColor" stop-opacity=".25"></stop>
-                        <stop offset="100%" stop-color="currentColor" stop-opacity="0"></stop>
-                    </linearGradient>
-                </defs>
-                ${gridValues.map((value, index) => {
-                    const y = top + innerHeight - (index / 2) * innerHeight;
-                    return `
-                        <line x1="${left}" y1="${y.toFixed(1)}" x2="${left + innerWidth}" y2="${y.toFixed(1)}" class="chart-grid"></line>
-                        <text x="${left - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="chart-axis-label">${escapeSvgText(formatPtNumber(value, config.digits))}</text>
-                    `;
-                }).join("")}
-                <polygon points="${escapeSvgText(areaPath)}" class="chart-area"></polygon>
-                <polyline points="${escapeSvgText(line)}" class="chart-line"></polyline>
+
+            <svg
+                class="brasil-chart"
+                viewBox="0 0 ${width} ${height}"
+                role="img"
+                aria-hidden="true"
+                focusable="false"
+            >
+                ${grid}
+
+                <polygon
+                    class="chart-area"
+                    points="${escapeHtml(area)}"
+                ></polygon>
+
+                <polyline
+                    class="chart-line"
+                    points="${escapeHtml(line)}"
+                ></polyline>
+
                 ${points.map((point) => `
                     <g>
-                        <circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="5" class="chart-point"></circle>
-                        <text x="${point.x.toFixed(1)}" y="${height - 18}" text-anchor="middle" class="chart-label">${escapeSvgText(point.ano)}</text>
+                        <title>${escapeHtml(point.year)}: ${escapeHtml(formatNumber(point.value, config.digits))} ${escapeHtml(config.unit)}</title>
+                        <circle
+                            class="chart-point"
+                            cx="${point.x.toFixed(1)}"
+                            cy="${point.y.toFixed(1)}"
+                            r="5"
+                        ></circle>
+                        <text
+                            class="chart-label"
+                            x="${point.x.toFixed(1)}"
+                            y="${height - 18}"
+                            text-anchor="middle"
+                        >${escapeHtml(point.year)}</text>
                     </g>
                 `).join("")}
             </svg>
-            <div class="grafico-unidade">Unidade: ${escapeSvgText(config.unit)}</div>
+
+            <div class="grafico-unidade">Unidade: ${escapeHtml(config.unit)}</div>
         `;
-    };
+    }
 
-    const loadBrasilData = async () => {
-        brasilState.dados = brasilFallback.map(normalizeBrasilRow);
-        brasilState.fontes = [];
-        updateBrasilHighlights();
-        renderBrasilChart("capacidade");
+    async function loadBrazilData() {
+        if (state.brasil.loading) return;
 
-        if (!clienteSupabase) return;
+        state.brasil.loading = true;
+        const requestId = ++state.brasil.requestId;
+        const chart = $("#grafico-brasil");
+        const status = $("[data-brazil-status]");
+
+        /*
+         * Fallback primeiro: a página nunca fica dependente da resposta do
+         * Supabase para apresentar o histórico educacional inicial.
+         */
+        state.brasil.data = BRASIL_FALLBACK
+            .map(normalizeBrazilRow)
+            .filter((row) => Number.isFinite(row.ano))
+            .sort((a, b) => a.ano - b.ano);
+        state.brasil.usingFallback = true;
+
+        updateBrazilHighlights();
+        renderBrazilChart(state.brasil.metric);
+
+        chart?.setAttribute("aria-busy", "false");
+        announce(status, "Dados de referência carregados; verificando atualização…");
+
+        if (!supabaseClient) {
+            state.brasil.loading = false;
+            chart?.setAttribute("aria-busy", "false");
+            announce(status, "Dados de referência disponíveis.");
+            return;
+        }
 
         try {
-            const { data, error } = await clienteSupabase
-                .from(BACKEND.brasilView)
-                .select("ano, capacidade_gw, geracao_twh, participacao_percentual, fonte_instituicao, fonte_titulo, fonte_ano, fonte_url")
-                .order("ano", { ascending: true });
+            const { data, error } = await apiSelectBrazil();
+            if (error) throw error;
 
-            if (error) {
-                console.warn("Não foi possível carregar vw_dados_brasil:", error.message);
+            const rows = (data || [])
+                .map(normalizeBrazilRow)
+                .filter((row) => Number.isFinite(row.ano));
+
+            if (requestId !== state.brasil.requestId) return;
+
+            if (rows.length) {
+                state.brasil.data = rows.sort((a, b) => a.ano - b.ano);
+                state.brasil.usingFallback = false;
+                updateBrazilHighlights();
+                renderBrazilChart(state.brasil.metric);
+            }
+
+            const latest = getLatestBrazil();
+            if (latest) {
+                announce(
+                    status,
+                    state.brasil.usingFallback
+                        ? `Dados de referência até ${latest.ano}`
+                        : `Dados do banco até ${latest.ano}`
+                );
+            }
+        } catch (error) {
+            console.warn(
+                "Solaris: não foi possível atualizar os dados do Brasil; fallback mantido.",
+                error?.message || error
+            );
+
+            const latest = getLatestBrazil();
+            announce(
+                status,
+                latest
+                    ? `Dados de referência até ${latest.ano}`
+                    : "Dados de referência disponíveis."
+            );
+        } finally {
+            state.brasil.loading = false;
+            chart?.setAttribute("aria-busy", "false");
+        }
+    }
+
+    function initBrazil() {
+        const root = $("[data-brazil-root]");
+        const buttons = $$('[data-brazil-metric]', root || document);
+
+        buttons.forEach((button, index) => {
+            button.addEventListener("click", () => {
+                renderBrazilChart(button.dataset.brazilMetric || "capacidade");
+            });
+
+            button.addEventListener("keydown", (event) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                event.preventDefault();
+
+                let nextIndex = index;
+                if (event.key === "ArrowRight") nextIndex = (index + 1) % buttons.length;
+                if (event.key === "ArrowLeft") nextIndex = (index - 1 + buttons.length) % buttons.length;
+                if (event.key === "Home") nextIndex = 0;
+                if (event.key === "End") nextIndex = buttons.length - 1;
+
+                buttons[nextIndex]?.focus();
+                renderBrazilChart(buttons[nextIndex]?.dataset.brazilMetric || "capacidade");
+            });
+        });
+
+        window.addEventListener("online", () => {
+            loadBrazilData();
+        }, { passive: true });
+
+        loadBrazilData();
+    }
+
+    /* ============================================================
+       11. FORMULÁRIO DE CONTATO
+    ============================================================ */
+
+    function initContactForm() {
+        const form = $("[data-contact-form]");
+        if (!form) return;
+
+        const phone = $("#telefone", form);
+        const feedback = $("[data-form-status]", form);
+        const honeypot = $("#website", form);
+        const submit = $("button[type='submit']", form);
+        let submitting = false;
+        let formStarted = false;
+
+        const showFeedback = (message, status = "") => {
+            announce(feedback, message);
+
+            if (!feedback) return;
+            if (status) {
+                feedback.dataset.status = status;
+            } else {
+                delete feedback.dataset.status;
+            }
+        };
+
+        const formatPhone = (value) => {
+            const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+            if (!digits) return "";
+            if (digits.length <= 2) return `(${digits}`;
+            if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+            if (digits.length <= 10) {
+                return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+            }
+            return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+        };
+
+        phone?.addEventListener("input", () => {
+            phone.value = formatPhone(phone.value);
+        });
+
+        const markStarted = () => {
+            if (formStarted) return;
+            formStarted = true;
+            analyticsTrack("formulario_iniciado", {});
+        };
+
+        form.addEventListener("input", (event) => {
+            if (event.target?.name !== "website") markStarted();
+            if (feedback?.textContent) showFeedback("");
+        });
+
+        form.addEventListener("change", (event) => {
+            if (event.target?.name !== "website") markStarted();
+        });
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (submitting) return;
+
+            markStarted();
+
+            if (honeypot?.value.trim()) {
+                showFeedback("Não foi possível enviar a mensagem.", "error");
                 return;
             }
 
-            brasilState.dados = (data || [])
-                .map(normalizeBrasilRow)
-                .filter((row) => Number.isFinite(row.ano));
-
-            if (!brasilState.dados.length) {
-                brasilState.dados = brasilFallback.map(normalizeBrasilRow);
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                showFeedback("Revise os campos obrigatórios antes de enviar.", "error");
+                return;
             }
 
-            updateBrasilHighlights();
-            renderBrasilChart(brasilState.metrica);
+            const now = Date.now();
+            const lastSubmission = toNumber(
+                safeStorage.get(window.localStorage, CONFIG.storage.lastMessage),
+                0
+            );
+
+            if (now - lastSubmission < CONFIG.limits.messageCooldown) {
+                showFeedback(
+                    "Aguarde alguns segundos antes de enviar outra mensagem.",
+                    "error"
+                );
+                return;
+            }
+
+            const nome = $("#nome", form)?.value.trim() || "";
+            const email = $("#email", form)?.value.trim().toLowerCase() || "";
+            const telefone = $("#telefone", form)?.value.trim() || "";
+            const perfilRaw = $("#perfil", form)?.value || "";
+            const empresa = $("#empresa", form)?.value.trim() || "";
+            const assunto = $("#assunto", form)?.value || "";
+            const mensagem = $("#mensagem", form)?.value.trim() || "";
+            const interesses = $$('input[name="interesses[]"]:checked', form)
+                .map((input) => input.value)
+                .filter(Boolean);
+
+            const allowedProfiles = new Set([
+                "estudante",
+                "empresa",
+                "profissional",
+                "pesquisador",
+                "outro"
+            ]);
+
+            const perfil = allowedProfiles.has(perfilRaw) ? perfilRaw : null;
+
+            if (
+                nome.length < 2
+                || nome.length > 100
+                || !isValidEmail(email)
+                || email.length > 254
+                || assunto.length < 2
+                || assunto.length > 150
+                || mensagem.length < 5
+                || mensagem.length > 5000
+            ) {
+                showFeedback("Revise o tamanho e o formato dos campos informados.", "error");
+                return;
+            }
+
+            if (!supabaseClient) {
+                showFeedback(
+                    "O serviço de envio não está disponível no momento.",
+                    "error"
+                );
+                return;
+            }
+
+            submitting = true;
+            submit?.classList.add("is-loading");
+            submit?.setAttribute("aria-busy", "true");
+            submit?.setAttribute("disabled", "true");
+
+            const originalText = submit?.textContent?.trim() || "Enviar mensagem";
+            if (submit) submit.dataset.originalText = originalText;
+            if (submit) submit.textContent = "Enviando…";
+
+            const payload = {
+                p_nome: nome,
+                p_email: email,
+                p_telefone: telefone,
+                p_empresa: empresa,
+                p_perfil: perfil,
+                p_assunto: assunto,
+                p_interesses: interesses,
+                p_mensagem: mensagem
+            };
+
+            try {
+                const { data, error } = await apiSendMessage(payload);
+                if (error) throw error;
+
+                form.reset();
+                safeStorage.set(
+                    window.localStorage,
+                    CONFIG.storage.lastMessage,
+                    String(Date.now())
+                );
+
+                showFeedback(
+                    "Mensagem enviada com sucesso! Obrigado pelo contato.",
+                    "success"
+                );
+
+                showToast("Mensagem enviada com sucesso.", "success");
+
+                analyticsTrack("formulario_enviado", {
+                    assunto,
+                    perfil: perfil || null,
+                    mensagem_id: typeof data === "string" ? data : null
+                });
+            } catch (error) {
+                console.error("Solaris: erro ao enviar mensagem.", error);
+                showFeedback(
+                    "Não foi possível enviar sua mensagem. Tente novamente.",
+                    "error"
+                );
+                showToast("Não foi possível enviar a mensagem.", "error");
+            } finally {
+                submitting = false;
+                submit?.classList.remove("is-loading");
+                submit?.removeAttribute("aria-busy");
+                submit?.removeAttribute("disabled");
+                if (submit) {
+                    submit.textContent = submit.dataset.originalText || "Enviar mensagem";
+                }
+            }
+        });
+    }
+
+    /* ============================================================
+       12. ANALYTICS / SESSÃO
+    ============================================================ */
+
+    function getDeviceType() {
+        const width = window.innerWidth;
+        if (width < 768) return "mobile";
+        if (width < 1200) return "tablet";
+        return "desktop";
+    }
+
+    function queueAnalyticsEvent(type, metadata = {}) {
+        const event = {
+            tipo: String(type),
+            pagina: getPageName(),
+            criado_em: new Date().toISOString(),
+            metadata: metadata && typeof metadata === "object" ? metadata : {}
+        };
+
+        if (state.analytics.sessionId) {
+            state.analytics.queue.push({
+                ...event,
+                sessao_id: state.analytics.sessionId
+            });
+            if (state.analytics.queue.length > CONFIG.limits.analyticsQueueMax) {
+                state.analytics.queue.splice(0, state.analytics.queue.length - CONFIG.limits.analyticsQueueMax);
+            }
+        } else {
+            state.analytics.pending.push(event);
+            if (state.analytics.pending.length > CONFIG.limits.analyticsQueueMax) {
+                state.analytics.pending.splice(0, state.analytics.pending.length - CONFIG.limits.analyticsQueueMax);
+            }
+        }
+
+        clearTimeout(state.analytics.flushTimer);
+        state.analytics.flushTimer = window.setTimeout(() => {
+            analyticsFlush();
+        }, CONFIG.limits.analyticsBatchDelay);
+    }
+
+    function analyticsTrack(type, metadata = {}, options = {}) {
+        const onlyIfSession = options.onlyIfSession === true;
+        const eventType = options.eventType || type;
+
+        /*
+         * Alguns componentes apenas querem registrar eventos quando já
+         * existe sessão. Isso impede que interações antes do bootstrap
+         * sejam associadas a uma sessão inexistente.
+         */
+        if (onlyIfSession && !state.analytics.sessionId) return;
+
+        /*
+         * O banco possui um CHECK de tipo. Mantemos os quatro eventos
+         * efetivamente existentes na implementação pública original.
+         * Outros eventos podem ser adicionados no futuro somente depois
+         * de o contrato do banco ser ampliado.
+         */
+        const allowedTypes = new Set([
+            "page_view",
+            "simulador_usado",
+            "formulario_iniciado",
+            "formulario_enviado"
+        ]);
+
+        if (!allowedTypes.has(eventType)) {
+            return;
+        }
+
+        queueAnalyticsEvent(eventType, metadata);
+    }
+
+    async function analyticsFlush() {
+        if (state.analytics.flushing || !state.analytics.queue.length) return;
+        if (!supabaseClient) return;
+
+        state.analytics.flushing = true;
+        const batch = state.analytics.queue.splice(
+            0,
+            Math.min(CONFIG.limits.analyticsBatchMax, state.analytics.queue.length)
+        );
+
+        try {
+            await apiSendAnalytics(batch);
         } catch (error) {
-            console.warn("Falha ao consultar vw_dados_brasil:", error);
+            const retryable = batch.filter((event) => {
+                const attempts = toNumber(event.__attempts, 0) + 1;
+                event.__attempts = attempts;
+                return attempts <= CONFIG.limits.analyticsRetryLimit;
+            });
+
+            if (retryable.length) {
+                state.analytics.queue.unshift(...retryable);
+            }
+
+            console.warn(
+                "Solaris: analytics não enviado.",
+                error?.message || error
+            );
+        } finally {
+            state.analytics.flushing = false;
+
+            if (state.analytics.queue.length) {
+                clearTimeout(state.analytics.flushTimer);
+                state.analytics.flushTimer = window.setTimeout(
+                    () => analyticsFlush(),
+                    CONFIG.limits.analyticsBatchDelay
+                );
+            }
         }
-    };
+    }
 
-    $$('[data-brasil-metrica]').forEach((button, index, buttons) => {
-        button.addEventListener("click", () => renderBrasilChart(button.dataset.brasilMetrica));
+    function promotePendingAnalytics() {
+        if (!state.analytics.sessionId || !state.analytics.pending.length) return;
 
-        button.addEventListener("keydown", (event) => {
-            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-            event.preventDefault();
-
-            let nextIndex = index;
-            if (event.key === "ArrowRight") nextIndex = (index + 1) % buttons.length;
-            if (event.key === "ArrowLeft") nextIndex = (index - 1 + buttons.length) % buttons.length;
-            if (event.key === "Home") nextIndex = 0;
-            if (event.key === "End") nextIndex = buttons.length - 1;
-
-            buttons[nextIndex]?.focus();
-            renderBrasilChart(buttons[nextIndex].dataset.brasilMetrica);
+        const pending = state.analytics.pending.splice(0, state.analytics.pending.length);
+        pending.forEach((event) => {
+            state.analytics.queue.push({
+                ...event,
+                sessao_id: state.analytics.sessionId
+            });
         });
-    });
-
-    loadBrasilData();
-
-    /* =========================================================
-       13. PROFISSÕES — LISTA INFORMATIVA
-    ========================================================== */
-
-    /* =========================================================
-       14. ANO DO RODAPÉ
-    ========================================================== */
-
-    const footerYear = $("#footer-year");
-    if (footerYear) footerYear.textContent = String(new Date().getFullYear());
-
-    /* =========================================================
-       ÁREA ADMINISTRATIVA
-    ========================================================== */
-
-  async function initAdmin(clienteSupabase) {
-    const root = $("#admin-root");
-    if (!root) return;
-    if (!clienteSupabase) {
-      root.innerHTML = '<section class="admin-screen"><div class="admin-card"><p class="eyebrow">SOLARIS</p><h1>Área administrativa</h1><p>Não foi possível carregar o sistema de acesso.</p></div></section>';
-      return;
     }
 
-    const state = { user:null, admin:null, messages:[], brazil:[], sources:[], tab:"mensagens" };
-    const profileLabels = { estudante:"Estudante", professor:"Professor(a)", profissional:"Profissional", "empresa-instituicao":"Empresa / instituição", visitante:"Visitante", outro:"Outro" };
-    const formatDate = value => {
-      if (!value) return "—";
-      const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("pt-BR", { dateStyle:"short", timeStyle:"short" }).format(date);
-    };
-    const profile = value => profileLabels[value] || value || "—";
-    const interests = value => Array.isArray(value) && value.length ? value.join(", ") : "—";
-    const message = (text, type="") => `<p class="admin-feedback${type ? ` ${type}` : ""}" role="status">${escapeHtml(text)}</p>`;
+    async function initAnalytics() {
+        if (state.analytics.initialized) return;
+        state.analytics.initialized = true;
 
-    function renderLogin(feedback="") {
-      root.innerHTML = `
-        <section class="admin-screen admin-login-screen">
-          <div class="admin-login-brand"><span class="admin-brand-mark">S</span><div><strong>SOLARIS</strong><small>Área administrativa</small></div></div>
-          <form class="admin-card admin-login-card" id="admin-login-form" novalidate>
-            <p class="eyebrow">ACESSO RESTRITO</p>
-            <h1>Área administrativa</h1>
-            <p class="admin-login-note">Entre com a conta administrativa cadastrada no Supabase.</p>
-            <label><span>E-mail</span><input id="admin-email" name="email" type="email" autocomplete="username" required></label>
-            <label><span>Senha</span><input id="admin-password" name="password" type="password" autocomplete="current-password" required></label>
-            <button class="admin-primary" type="submit">Entrar</button>
-            ${feedback ? message(feedback,"error") : ""}
-          </form>
-        </section>`;
-      $("#admin-login-form")?.addEventListener("submit", login);
-      $("#admin-email")?.focus();
-    }
+        if (!supabaseClient) return;
 
-    async function login(event) {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const email = $("#admin-email")?.value.trim() || "";
-      const password = $("#admin-password")?.value || "";
-      if (!form.checkValidity()) { form.reportValidity(); return; }
-      const button = $("button[type='submit']", form);
-      if (button) { button.disabled=true; button.textContent="Entrando…"; }
-      let data;
-      try {
-        const result = await withTimeout(
-          clienteSupabase.auth.signInWithPassword({ email, password }),
-          12000,
-          "auth-timeout"
-        );
-        data = result.data;
-        if (result.error || !data.session) {
-          if (button) { button.disabled=false; button.textContent="Entrar"; }
-          renderLogin("E-mail ou senha inválidos. Confira a conta administrativa.");
-          return;
+        try {
+            const { data, error } = await apiCreateSession({
+                pagina_inicial: getPageName(),
+                dispositivo: getDeviceType()
+            });
+
+            if (error) throw error;
+
+            state.analytics.sessionId = data?.id || null;
+            promotePendingAnalytics();
+
+            /*
+             * page_view já fica marcado no sessionStorage.
+             * Assim, recarregar a mesma aba não cria dezenas de
+             * visualizações idênticas para a mesma sessão.
+             *
+             * A chave também contém a página para que, no futuro,
+             * uma navegação real entre páginas continue sendo registrada.
+             */
+            const pageViewKey = `${CONFIG.storage.pageViewPrefix}:${state.analytics.sessionId}:${getPageName()}`;
+            const alreadyTracked = safeStorage.get(window.sessionStorage, pageViewKey) === "1";
+
+            if (state.analytics.sessionId && !alreadyTracked) {
+                state.analytics.pageViewTracked = true;
+                analyticsTrack("page_view", {
+                    referrer: document.referrer || null,
+                    device: getDeviceType()
+                });
+                safeStorage.set(window.sessionStorage, pageViewKey, "1");
+            } else {
+                state.analytics.pageViewTracked = true;
+            }
+
+            await analyticsFlush();
+        } catch (error) {
+            console.warn(
+                "Solaris: sessão de analytics não iniciada.",
+                error?.message || error
+            );
         }
-      } catch (error) {
-        console.error("Falha no login:", error);
-        if (button) { button.disabled=false; button.textContent="Entrar"; }
-        renderLogin(error.message === "auth-timeout"
-          ? "O acesso demorou demais para responder. Verifique a conexão e tente novamente."
-          : "Não foi possível realizar o acesso administrativo.");
-        return;
-      }
 
-      try {
-        if (button) { button.disabled=false; button.textContent="Entrar"; }
-        const { data: admin, error: adminError } = await withTimeout(
-          clienteSupabase
-            .from("admin_usuarios")
-            .select("user_id, nome, created_at")
-            .eq("user_id", data.session.user.id)
-            .maybeSingle(),
-          10000,
-          "admin-timeout"
-        );
+        const flushOnHide = () => {
+            analyticsFlush();
+        };
 
-        if (adminError) {
-          console.error("Falha ao validar admin:", adminError);
-          throw new Error("admin-query");
-        }
-        if (!admin) throw new Error("forbidden");
-
-        state.user=data.session.user;
-        state.admin=admin;
-        renderDashboard();
-        refreshAll().catch(error => {
-          console.error(error);
-          setStatus("Painel aberto, mas alguns dados não puderam ser carregados.","error");
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "hidden") flushOnHide();
         });
-      } catch (error) {
-        console.error(error);
-        await clienteSupabase.auth.signOut();
-        const msg = error.message === "admin-query"
-          ? "Login realizado, mas a permissão administrativa não pôde ser validada."
-          : error.message === "admin-timeout"
-            ? "A validação administrativa demorou demais para responder."
-            : "Esta conta não está autorizada na área administrativa.";
-        renderLogin(msg);
-      }
+
+        window.addEventListener("pagehide", flushOnHide, { passive: true });
+        window.addEventListener("online", () => analyticsFlush(), { passive: true });
     }
 
-    async function logout() {
-      await clienteSupabase.auth.signOut();
-      state.user=null; state.admin=null;
-      renderLogin();
+    /* ============================================================
+       13. TOAST / FEEDBACK GLOBAL
+    ============================================================ */
+
+    let toastTimer = null;
+
+    function showToast(message, type = "success") {
+        const toast = $("[data-toast]");
+        if (!toast) return;
+
+        window.clearTimeout(toastTimer);
+        toast.textContent = String(message || "");
+        toast.dataset.type = type === "error" ? "error" : "success";
+        toast.hidden = false;
+
+        toastTimer = window.setTimeout(() => {
+            toast.hidden = true;
+        }, CONFIG.limits.toastDuration);
     }
 
-    function dashboardTemplate() {
-      return `
-        <section class="admin-shell">
-          <header class="admin-header">
-            <div><p class="eyebrow">SOLARIS</p><h1>Painel administrativo</h1><p>Conta: ${escapeHtml(state.user?.email || "—")}</p></div>
-            <button id="admin-logout" class="admin-secondary" type="button">Sair</button>
-          </header>
-          <div id="admin-status" aria-live="polite"></div>
-          <div class="admin-stats">
-            <article><span>Mensagens</span><strong id="stat-messages">—</strong><small>contatos recebidos</small></article>
-            <article><span>Brasil</span><strong id="stat-brazil">—</strong><small>anos cadastrados</small></article>
-            <article><span>Fontes</span><strong id="stat-sources">—</strong><small>referências cadastradas</small></article>
-          </div>
-          <nav class="admin-tabs" aria-label="Seções administrativas">
-            <button class="admin-tab is-active" data-tab="mensagens" type="button">Mensagens</button>
-            <button class="admin-tab" data-tab="brasil" type="button">Brasil</button>
-            <button class="admin-tab" data-tab="fontes" type="button">Fontes</button>
-          </nav>
-          <section class="admin-panel" data-panel="mensagens"></section>
-          <section class="admin-panel" data-panel="brasil" hidden></section>
-          <section class="admin-panel" data-panel="fontes" hidden></section>
-        </section>`;
+    /* ============================================================
+       14. RODAPÉ + BOOTSTRAP
+    ============================================================ */
+
+    function initFooter() {
+        const year = $("#footer-year");
+        if (year) year.textContent = String(new Date().getFullYear());
     }
 
-    function renderDashboard() {
-      root.innerHTML = dashboardTemplate();
-      $("#admin-logout")?.addEventListener("click", logout);
-      $$(".admin-tab", root).forEach(button=>button.addEventListener("click",()=>setTab(button.dataset.tab)));
-      setTab(state.tab);
+    async function init() {
+        if (document.body?.dataset.page !== "home") return;
+
+        /*
+         * O Supabase é opcional para a renderização local: o site deve
+         * continuar utilizável mesmo quando a API estiver indisponível.
+         */
+        supabaseClient = createSupabaseClient();
+
+        initTheme();
+        initNavigation();
+        initCarousel();
+        initSystems();
+        initSimulator();
+        initBrazil();
+        initContactForm();
+        initFooter();
+
+        /*
+         * Analytics é o último bootstrap: assim todos os componentes
+         * locais ficam utilizáveis mesmo que o Supabase não responda.
+         */
+        await initAnalytics();
     }
 
-    function setTab(tab) {
-      state.tab=tab;
-      $$(".admin-tab", root).forEach(button=>button.classList.toggle("is-active", button.dataset.tab===tab));
-      $$(".admin-panel", root).forEach(panel=>panel.hidden=panel.dataset.panel!==tab);
-      if (tab==="mensagens") renderMessages();
-      if (tab==="brasil") renderBrazil();
-      if (tab==="fontes") renderSources();
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => {
+            init().catch((error) => {
+                console.error("Solaris: falha inesperada na inicialização.", error);
+            });
+        }, { once: true });
+    } else {
+        init().catch((error) => {
+            console.error("Solaris: falha inesperada na inicialização.", error);
+        });
     }
-
-    function setStatus(text, type="") {
-      const target=$("#admin-status");
-      if (!target) return;
-      target.innerHTML = text ? message(text,type) : "";
-    }
-
-    async function loadMessages() {
-      const modern = await clienteSupabase
-        .from("mensagens")
-        .select("id,nome,email,telefone,perfil,empresa,assunto,interesses,mensagem,created_at")
-        .order("created_at",{ascending:false});
-
-      if (!modern.error) {
-        state.messages=modern.data||[];
-        return;
-      }
-
-      // Compatibilidade caso a migração de perfil/interesses ainda não tenha sido executada.
-      const legacy = await clienteSupabase
-        .from("mensagens")
-        .select("id,nome,email,telefone,empresa,assunto,mensagem,created_at")
-        .order("created_at",{ascending:false});
-
-      if (legacy.error) throw legacy.error;
-      state.messages=(legacy.data||[]).map(item=>({...item,perfil:null,interesses:[]}));
-    }
-    async function loadBrazil() {
-      const {data,error}=await clienteSupabase.from("dados_brasil").select("id,ano,capacidade_gw,geracao_twh,participacao_percentual,fonte_id,created_at").order("ano",{ascending:false});
-      if (error) throw error;
-      state.brazil=data||[];
-    }
-    async function loadSources() {
-      const {data,error}=await clienteSupabase.from("fontes").select("id,instituicao,titulo,ano,url,created_at").order("ano",{ascending:false});
-      if (error) throw error;
-      state.sources=data||[];
-    }
-    async function refreshAll() {
-      setStatus("Atualizando…");
-      try {
-        await Promise.all([loadMessages(),loadBrazil(),loadSources()]);
-        $("#stat-messages").textContent=state.messages.length;
-        $("#stat-brazil").textContent=state.brazil.length;
-        $("#stat-sources").textContent=state.sources.length;
-        renderMessages(); renderBrazil(); renderSources();
-        setStatus("Dados atualizados.","success");
-      } catch(error) {
-        console.error(error);
-        setStatus("Não foi possível carregar os dados. Verifique as políticas do Supabase.","error");
-      }
-    }
-
-    function panelHeading(eyebrow,title,actions="") { return `<div class="admin-panel-heading"><div><p class="eyebrow">${eyebrow}</p><h2>${title}</h2></div><div class="admin-actions">${actions}</div></div>`; }
-    function renderMessages() {
-      const panel=$("[data-panel='mensagens']",root); if (!panel) return;
-      panel.innerHTML=panelHeading("CONTATO","Mensagens recebidas",`<button class="admin-secondary" data-refresh="mensagens" type="button">Atualizar</button>`)+`<div class="admin-table-wrap" id="messages-table"></div>`;
-      const target=$("#messages-table");
-      if (!state.messages.length) { target.innerHTML='<div class="admin-empty">Nenhuma mensagem recebida.</div>'; return; }
-      target.innerHTML=`<table><thead><tr><th>Data</th><th>Nome</th><th>Perfil</th><th>Assunto</th><th>E-mail</th><th></th></tr></thead><tbody>${state.messages.map(row=>`<tr><td>${escapeHtml(formatDate(row.created_at))}</td><td>${escapeHtml(row.nome)}</td><td>${escapeHtml(profile(row.perfil))}</td><td>${escapeHtml(row.assunto)}</td><td>${escapeHtml(row.email)}</td><td><button class="admin-link-button" data-open-message="${row.id}" type="button">Abrir</button></td></tr>`).join("")}</tbody></table>`;
-      panel.querySelector("[data-refresh='mensagens']")?.addEventListener("click",async()=>{try{await loadMessages();renderMessages();setStatus("Mensagens atualizadas.","success");}catch{setStatus("Não foi possível atualizar as mensagens.","error");}});
-      target.addEventListener("click",event=>{const button=event.target.closest("[data-open-message]");if(button)openMessage(button.dataset.openMessage);});
-    }
-
-    function sourceFor(id){return state.sources.find(item=>String(item.id)===String(id));}
-    function sourceOptions(selected="") { return '<option value="">Selecione uma fonte</option>'+state.sources.map(s=>`<option value="${s.id}" ${String(s.id)===String(selected)?"selected":""}>${escapeHtml(s.instituicao)} — ${escapeHtml(s.titulo)} (${escapeHtml(s.ano)})</option>`).join(""); }
-
-    function renderBrazil() {
-      const panel=$("[data-panel='brasil']",root); if (!panel) return;
-      panel.innerHTML=panelHeading("DADOS PÚBLICOS","Energia solar no Brasil",`<button class="admin-secondary" data-refresh="brasil" type="button">Atualizar</button><button class="admin-primary" data-new-brazil type="button">Novo dado</button>`)+`<div class="admin-table-wrap" id="brazil-table"></div>`;
-      const target=$("#brazil-table");
-      if (!state.brazil.length) target.innerHTML='<div class="admin-empty">Nenhum dado cadastrado.</div>';
-      else target.innerHTML=`<table><thead><tr><th>Ano</th><th>Capacidade</th><th>Geração</th><th>Participação</th><th>Fonte</th><th>Ações</th></tr></thead><tbody>${state.brazil.map(row=>{const src=sourceFor(row.fonte_id);return `<tr><td>${row.ano}</td><td>${pt(row.capacidade_gw,3)} GW</td><td>${pt(row.geracao_twh,3)} TWh</td><td>${pt(row.participacao_percentual,2)}%</td><td>${escapeHtml(src?`${src.instituicao} — ${src.ano}`:`#${row.fonte_id}`)}</td><td class="admin-actions-cell"><button class="admin-link-button" data-edit-brazil="${row.id}" type="button">Editar</button><button class="admin-link-button danger" data-delete-brazil="${row.id}" type="button">Excluir</button></td></tr>`;}).join("")}</tbody></table>`;
-      panel.querySelector("[data-refresh='brasil']")?.addEventListener("click",async()=>{try{await loadBrazil();renderBrazil();setStatus("Dados do Brasil atualizados.","success");}catch{setStatus("Não foi possível atualizar os dados.","error");}});
-      panel.querySelector("[data-new-brazil]")?.addEventListener("click",()=>openBrazilForm());
-      target.addEventListener("click",event=>{
-        const edit=event.target.closest("[data-edit-brazil]"); if(edit) openBrazilForm(edit.dataset.editBrazil);
-        const del=event.target.closest("[data-delete-brazil]"); if(del) deleteBrazil(del.dataset.deleteBrazil);
-      });
-    }
-
-    function renderSources() {
-      const panel=$("[data-panel='fontes']",root); if (!panel) return;
-      panel.innerHTML=panelHeading("REFERÊNCIAS","Fontes cadastradas",`<button class="admin-secondary" data-refresh="fontes" type="button">Atualizar</button><button class="admin-primary" data-new-source type="button">Nova fonte</button>`)+`<div class="admin-table-wrap" id="sources-table"></div>`;
-      const target=$("#sources-table");
-      if (!state.sources.length) target.innerHTML='<div class="admin-empty">Nenhuma fonte cadastrada.</div>';
-      else target.innerHTML=`<table><thead><tr><th>Instituição</th><th>Título</th><th>Ano</th><th>URL</th><th>Ações</th></tr></thead><tbody>${state.sources.map(row=>`<tr><td>${escapeHtml(row.instituicao)}</td><td>${escapeHtml(row.titulo)}</td><td>${row.ano}</td><td><a href="${escapeHtml(row.url)}" target="_blank" rel="noopener noreferrer">Abrir fonte</a></td><td class="admin-actions-cell"><button class="admin-link-button" data-edit-source="${row.id}" type="button">Editar</button><button class="admin-link-button danger" data-delete-source="${row.id}" type="button">Excluir</button></td></tr>`).join("")}</tbody></table>`;
-      panel.querySelector("[data-refresh='fontes']")?.addEventListener("click",async()=>{try{await loadSources();renderSources();setStatus("Fontes atualizadas.","success");}catch{setStatus("Não foi possível atualizar as fontes.","error");}});
-      panel.querySelector("[data-new-source]")?.addEventListener("click",()=>openSourceForm());
-      target.addEventListener("click",event=>{
-        const edit=event.target.closest("[data-edit-source]"); if(edit) openSourceForm(edit.dataset.editSource);
-        const del=event.target.closest("[data-delete-source]"); if(del) deleteSource(del.dataset.deleteSource);
-      });
-    }
-
-    function dialog(content) {
-      const old=$(".admin-dialog",root); old?.remove();
-      root.insertAdjacentHTML("beforeend",`<dialog class="admin-dialog">${content}</dialog>`);
-      const d=$(".admin-dialog",root);
-      d?.addEventListener("click",event=>{if(event.target===d)d.close();});
-      d?.showModal?.();
-      return d;
-    }
-
-    function openMessage(id) {
-      const row=state.messages.find(item=>String(item.id)===String(id)); if(!row)return;
-      const d=dialog(`<div class="admin-dialog-inner"><button class="admin-dialog-close" type="button">×</button><p class="eyebrow">MENSAGEM</p><h2>${escapeHtml(row.assunto||"Sem assunto")}</h2><dl class="admin-detail-list"><dt>Nome</dt><dd>${escapeHtml(row.nome)}</dd><dt>E-mail</dt><dd>${escapeHtml(row.email)}</dd><dt>Telefone</dt><dd>${escapeHtml(row.telefone||"—")}</dd><dt>Perfil</dt><dd>${escapeHtml(profile(row.perfil))}</dd><dt>Empresa</dt><dd>${escapeHtml(row.empresa||"—")}</dd><dt>Interesses</dt><dd>${escapeHtml(interests(row.interesses))}</dd><dt>Recebida</dt><dd>${escapeHtml(formatDate(row.created_at))}</dd></dl><div class="admin-message"><span>Mensagem</span><p>${escapeHtml(row.mensagem||"")}</p></div></div>`);
-      d.querySelector(".admin-dialog-close")?.addEventListener("click",()=>d.close());
-    }
-
-    function openSourceForm(id="") {
-      const row=id?state.sources.find(item=>String(item.id)===String(id)):null;
-      const d=dialog(`<form class="admin-dialog-inner" id="source-form"><button class="admin-dialog-close" type="button">×</button><p class="eyebrow">REFERÊNCIA</p><h2>${row?"Editar fonte":"Nova fonte"}</h2><input type="hidden" name="id" value="${row?.id||""}"><label><span>Instituição</span><input name="instituicao" maxlength="160" required value="${escapeHtml(row?.instituicao||"")}"></label><label><span>Título</span><input name="titulo" maxlength="220" required value="${escapeHtml(row?.titulo||"")}"></label><label><span>Ano</span><input name="ano" type="number" min="1900" max="2100" required value="${row?.ano||""}"></label><label><span>URL</span><input name="url" type="url" maxlength="1000" placeholder="https://..." required value="${escapeHtml(row?.url||"")}"></label><div class="admin-dialog-actions"><button class="admin-secondary" type="button" data-cancel>Cancelar</button><button class="admin-primary" type="submit">Salvar fonte</button></div></form>`);
-      const form=$("#source-form",d);
-      d.querySelector(".admin-dialog-close")?.addEventListener("click",()=>d.close());
-      d.querySelector("[data-cancel]")?.addEventListener("click",()=>d.close());
-      form?.addEventListener("submit",async(event)=>{event.preventDefault();const data=Object.fromEntries(new FormData(form));const payload={instituicao:data.instituicao.trim(),titulo:data.titulo.trim(),ano:Number(data.ano),url:data.url.trim()};const result=data.id?await clienteSupabase.from("fontes").update(payload).eq("id",data.id):await clienteSupabase.from("fontes").insert(payload);if(result.error){setStatus("Não foi possível salvar a fonte.","error");return;}d.close();await loadSources();renderSources();$("#stat-sources").textContent=state.sources.length;setStatus(data.id?"Fonte atualizada.":"Fonte adicionada.","success");});
-    }
-
-    function openBrazilForm(id="") {
-      const row=id?state.brazil.find(item=>String(item.id)===String(id)):null;
-      const d=dialog(`<form class="admin-dialog-inner" id="brazil-form"><button class="admin-dialog-close" type="button">×</button><p class="eyebrow">DADOS PÚBLICOS</p><h2>${row?"Editar dado":"Novo dado"}</h2><input type="hidden" name="id" value="${row?.id||""}"><label><span>Ano</span><input name="ano" type="number" min="1900" max="2100" required value="${row?.ano||""}"></label><label><span>Capacidade instalada (GW)</span><input name="capacidade" type="number" min="0" step="0.001" required value="${row?.capacidade_gw??""}"></label><label><span>Geração (TWh)</span><input name="geracao" type="number" min="0" step="0.001" required value="${row?.geracao_twh??""}"></label><label><span>Participação na geração (%)</span><input name="participacao" type="number" min="0" max="100" step="0.01" required value="${row?.participacao_percentual??""}"></label><label><span>Fonte</span><select name="fonte" required>${sourceOptions(row?.fonte_id||"")}</select></label><div class="admin-dialog-actions"><button class="admin-secondary" type="button" data-cancel>Cancelar</button><button class="admin-primary" type="submit">Salvar dado</button></div></form>`);
-      const form=$("#brazil-form",d);
-      d.querySelector(".admin-dialog-close")?.addEventListener("click",()=>d.close());
-      d.querySelector("[data-cancel]")?.addEventListener("click",()=>d.close());
-      form?.addEventListener("submit",async(event)=>{event.preventDefault();const data=Object.fromEntries(new FormData(form));const payload={ano:Number(data.ano),capacidade_gw:Number(data.capacidade),geracao_twh:Number(data.geracao),participacao_percentual:Number(data.participacao),fonte_id:Number(data.fonte)};const result=data.id?await clienteSupabase.from("dados_brasil").update(payload).eq("id",data.id):await clienteSupabase.from("dados_brasil").insert(payload);if(result.error){setStatus(/duplicate|unique/i.test(result.error.message||"")?"Esse ano já está cadastrado.":"Não foi possível salvar o dado.","error");return;}d.close();await loadBrazil();renderBrazil();$("#stat-brazil").textContent=state.brazil.length;setStatus(data.id?"Dado atualizado.":"Dado adicionado.","success");});
-    }
-
-    async function deleteSource(id) {
-      const row=state.sources.find(item=>String(item.id)===String(id)); if(!row)return;
-      if(!confirm(`Excluir a fonte “${row.titulo}”?`))return;
-      const {error}=await clienteSupabase.from("fontes").delete().eq("id",id);
-      if(error){setStatus("A fonte não pode ser excluída enquanto estiver vinculada a um dado do Brasil.","error");return;}
-      await loadSources(); renderSources(); $("#stat-sources").textContent=state.sources.length; setStatus("Fonte excluída.","success");
-    }
-    async function deleteBrazil(id) {
-      const row=state.brazil.find(item=>String(item.id)===String(id)); if(!row)return;
-      if(!confirm(`Excluir o dado de ${row.ano}?`))return;
-      const {error}=await clienteSupabase.from("dados_brasil").delete().eq("id",id);
-      if(error){setStatus("Não foi possível excluir o dado.","error");return;}
-      await loadBrazil(); renderBrazil(); $("#stat-brazil").textContent=state.brazil.length; setStatus("Dado excluído.","success");
-    }
-
-    renderLogin();
-  }
-
 })();
