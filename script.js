@@ -29,7 +29,7 @@
 (() => {
     "use strict";
 
-    const SOLARIS_PUBLIC_JS_VERSION = "2026.10.01-public-v3";
+    const SOLARIS_PUBLIC_JS_VERSION = "2026.10.06-public-final-corrected";
     document.documentElement.dataset.solarisJs = SOLARIS_PUBLIC_JS_VERSION;
 
     /* ============================================================
@@ -88,8 +88,6 @@
             progressTimer: null,
             progressStartedAt: 0,
             duration: 8000,
-            hoverPaused: false,
-            focusPaused: false,
             touchStartX: null
         },
 
@@ -97,7 +95,7 @@
             lastResult: null
         },
 
-        brazil: {
+        brasil: {
             data: [],
             metric: "capacidade",
             usingFallback: false,
@@ -119,19 +117,6 @@
     /* ============================================================
        03. UTILITÁRIOS
     ============================================================ */
-
-    /*
-     * Proteção de compatibilidade: caso uma versão anterior do script seja
-     * carregada junto com esta, garantimos que o estado do Brasil exista
-     * antes de qualquer leitura em loadBrazilData().
-     */
-    state.brasil ??= {
-        data: [],
-        metric: "capacidade",
-        usingFallback: false,
-        loading: false,
-        requestId: 0
-    };
 
     const $ = (selector, context = document) => {
         try {
@@ -623,8 +608,6 @@
         const canAutoplay = () => {
             return slides.length > 1
                 && !state.carousel.paused
-                && !state.carousel.hoverPaused
-                && !state.carousel.focusPaused
                 && !document.hidden
                 && !prefersReducedMotion();
         };
@@ -685,27 +668,6 @@
         root.addEventListener("pointercancel", () => {
             state.carousel.touchStartX = null;
         }, { passive: true });
-
-        root.addEventListener("mouseenter", () => {
-            state.carousel.hoverPaused = true;
-            stopTimers();
-        });
-
-        root.addEventListener("mouseleave", () => {
-            state.carousel.hoverPaused = false;
-            start();
-        });
-
-        root.addEventListener("focusin", () => {
-            state.carousel.focusPaused = true;
-            stopTimers();
-        });
-
-        root.addEventListener("focusout", (event) => {
-            if (root.contains(event.relatedTarget)) return;
-            state.carousel.focusPaused = false;
-            start();
-        });
 
         document.addEventListener("visibilitychange", () => {
             if (document.hidden) stopTimers();

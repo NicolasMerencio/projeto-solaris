@@ -15,6 +15,10 @@
   <meta name="referrer" content="strict-origin-when-cross-origin">
 
   <link rel="icon" href="imagens/favicon.ico" type="image/x-icon">
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css"
+  >
   <link rel="stylesheet" href="style.css">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -690,43 +694,51 @@
         <ol class="flow-list" aria-label="Caminho resumido da energia solar">
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-sun"></i></span>
             <span>01</span>
-            <strong>☀️ Sol</strong>
+            <strong>Sol</strong>
           </li>
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-sparkle"></i></span>
             <span>02</span>
             <strong>Fótons</strong>
           </li>
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-solar-panel"></i></span>
             <span>03</span>
             <strong>Célula fotovoltaica</strong>
           </li>
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-arrows-split"></i></span>
             <span>04</span>
             <strong>Separação de cargas</strong>
           </li>
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-lightning"></i></span>
             <span>05</span>
             <strong>Corrente contínua</strong>
           </li>
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-arrows-clockwise"></i></span>
             <span>06</span>
             <strong>Inversor</strong>
           </li>
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-waveform"></i></span>
             <span>07</span>
             <strong>Corrente alternada</strong>
           </li>
 
           <li>
+            <span class="flow-icon" aria-hidden="true"><i class="ph ph-house"></i></span>
             <span>08</span>
-            <strong>🏠 Imóvel</strong>
+            <strong>Imóvel</strong>
           </li>
 
         </ol>
@@ -1364,36 +1376,43 @@
         <ol class="life-cycle-list" aria-label="Ciclo de vida da energia solar">
 
           <li>
+            <span class="life-cycle-icon" aria-hidden="true"><i class="ph ph-cube"></i></span>
             <span>01</span>
             <strong>Matéria-prima</strong>
           </li>
 
           <li>
+            <span class="life-cycle-icon" aria-hidden="true"><i class="ph ph-factory"></i></span>
             <span>02</span>
             <strong>Fabricação</strong>
           </li>
 
           <li>
+            <span class="life-cycle-icon" aria-hidden="true"><i class="ph ph-truck"></i></span>
             <span>03</span>
             <strong>Transporte</strong>
           </li>
 
           <li>
+            <span class="life-cycle-icon" aria-hidden="true"><i class="ph ph-wrench"></i></span>
             <span>04</span>
             <strong>Instalação</strong>
           </li>
 
           <li>
+            <span class="life-cycle-icon" aria-hidden="true"><i class="ph ph-sun"></i></span>
             <span>05</span>
             <strong>Geração</strong>
           </li>
 
           <li>
+            <span class="life-cycle-icon" aria-hidden="true"><i class="ph ph-hourglass"></i></span>
             <span>06</span>
             <strong>Fim de vida</strong>
           </li>
 
           <li>
+            <span class="life-cycle-icon" aria-hidden="true"><i class="ph ph-recycle"></i></span>
             <span>07</span>
             <strong>Reuso / Reciclagem</strong>
           </li>
@@ -2140,67 +2159,109 @@
 
               <div class="interests-grid">
 
-                <label>
+                <label class="interest-option">
                   <input
                     type="checkbox"
                     name="interesses[]"
                     value="energia-solar"
                   >
-                  Energia solar
+                  <span class="interest-option-icon" aria-hidden="true">
+                    <i class="ph ph-sun"></i>
+                  </span>
+                  <span class="interest-option-text">Energia solar</span>
+                  <span class="interest-option-check" aria-hidden="true">
+                    <i class="ph ph-check"></i>
+                  </span>
                 </label>
 
-                <label>
+                <label class="interest-option">
                   <input
                     type="checkbox"
                     name="interesses[]"
                     value="tecnologias"
                   >
-                  Tecnologias
+                  <span class="interest-option-icon" aria-hidden="true">
+                    <i class="ph ph-cpu"></i>
+                  </span>
+                  <span class="interest-option-text">Tecnologias</span>
+                  <span class="interest-option-check" aria-hidden="true">
+                    <i class="ph ph-check"></i>
+                  </span>
                 </label>
 
-                <label>
+                <label class="interest-option">
                   <input
                     type="checkbox"
                     name="interesses[]"
                     value="sustentabilidade"
                   >
-                  Sustentabilidade
+                  <span class="interest-option-icon" aria-hidden="true">
+                    <i class="ph ph-leaf"></i>
+                  </span>
+                  <span class="interest-option-text">Sustentabilidade</span>
+                  <span class="interest-option-check" aria-hidden="true">
+                    <i class="ph ph-check"></i>
+                  </span>
                 </label>
 
-                <label>
+                <label class="interest-option">
                   <input
                     type="checkbox"
                     name="interesses[]"
                     value="aplicacoes"
                   >
-                  Aplicações
+                  <span class="interest-option-icon" aria-hidden="true">
+                    <i class="ph ph-buildings"></i>
+                  </span>
+                  <span class="interest-option-text">Aplicações</span>
+                  <span class="interest-option-check" aria-hidden="true">
+                    <i class="ph ph-check"></i>
+                  </span>
                 </label>
 
-                <label>
+                <label class="interest-option">
                   <input
                     type="checkbox"
                     name="interesses[]"
                     value="brasil"
                   >
-                  Dados do Brasil
+                  <span class="interest-option-icon" aria-hidden="true">
+                    <i class="ph ph-chart-line-up"></i>
+                  </span>
+                  <span class="interest-option-text">Dados do Brasil</span>
+                  <span class="interest-option-check" aria-hidden="true">
+                    <i class="ph ph-check"></i>
+                  </span>
                 </label>
 
-                <label>
+                <label class="interest-option">
                   <input
                     type="checkbox"
                     name="interesses[]"
                     value="profissoes"
                   >
-                  Profissões
+                  <span class="interest-option-icon" aria-hidden="true">
+                    <i class="ph ph-briefcase"></i>
+                  </span>
+                  <span class="interest-option-text">Profissões</span>
+                  <span class="interest-option-check" aria-hidden="true">
+                    <i class="ph ph-check"></i>
+                  </span>
                 </label>
 
-                <label>
+                <label class="interest-option">
                   <input
                     type="checkbox"
                     name="interesses[]"
                     value="projeto-solaris"
                   >
-                  Projeto Solaris
+                  <span class="interest-option-icon" aria-hidden="true">
+                    <i class="ph ph-sparkle"></i>
+                  </span>
+                  <span class="interest-option-text">Projeto Solaris</span>
+                  <span class="interest-option-check" aria-hidden="true">
+                    <i class="ph ph-check"></i>
+                  </span>
                 </label>
 
               </div>
